@@ -49,6 +49,35 @@ build, install, and link, across three generators that must stay in lockstep. Th
   only if one is present (a `/RELEASE`-less build leaves it 0). No other target is below its floor, so this is
   a no-op everywhere else. `editbin` shares link.exe's floor and can't do it either.
 
+## Which C runtime (`--crt`, premake `XP.lua`)
+- **The MSVC C runtime is three separate pieces since VS2015:** the **UCRT** (`ucrtbase.dll` +
+  `api-ms-win-crt-*.dll` — the C stdlib), the **VCRuntime** (`vcruntime140.dll` — EH/`/GS`/RTTI glue), and the
+  **C++ stdlib** (`msvcp140.dll`). A `/MD` build needs all three. The UCRT and the VC-LTL `msvcrt.dll` route are
+  **mutually-exclusive** strategies for the same job, never combined.
+- **`--crt=<mode>` is the full selector** (supersedes `--use-msvcrt`, kept as the on/off/release alias). One of:
+  - `msvcrt` — Windows' own `msvcrt.dll` via VC-LTL5. Tiny, nothing to ship, runs XP+.
+  - `static` — the UCRT linked static (`/MT`). Self-contained; keeps MSVC's debug heap.
+  - `dynamic` — the UCRT dynamic (`/MD`), relying on the runtime being present on the target.
+  - `ucrt-local` — `/MD` with the UCRT + VC runtime copied **app-local**, so it runs on **XP SP3+** with nothing
+    installed. Release copies the redistributable DLLs; Debug ALSO copies the **non-redistributable** debug DLLs
+    (`ucrtbased.dll`/`vcruntime140d.dll`) so a local debug build runs — **that build must not be shared**.
+- **The CRT is PER CONFIG** (`crt_pair()` → release mode, debug mode). `--crt` sets the Release/non-Debug CRT;
+  **Debug defaults to `static`** so a debug build keeps MSVC's debug heap and leak detection, and **`--crt-debug`**
+  overrides it (mirrors `--crt`). So `--crt=ucrt-local` ships the app-local UCRT in Release while Debug stays
+  self-contained static; `--crt-debug=ucrt-local` opts Debug in too (copying the non-redistributable debug DLLs).
+  With no `--crt`, the legacy `--use-msvcrt` path is byte-for-byte unchanged (`on` = msvcrt both, `release` =
+  msvcrt/static split, `off` = static both). `apply_dynamic_crt(mode, cfg)` sets `/MD` per config; VC-LTL is
+  scoped by `msvcrt_config_filter()` (both / release-only / debug-only). Nothing about the proven static/msvcrt
+  XP paths changes when `--crt` is unset.
+- **`Generate.ps1` shows a resolved-settings summary** before the `o`/Enter gate (toolset, SpiderMonkey,
+  architectures, target OS + subsystem, and the release/debug CRT), so Enter is an informed choice. It comes
+  from premake itself via the read-only **`jbuild-summary`** action (ground truth, consumer defaults included),
+  not a regex guess; silent if the consumer has no XP.lua.
+- **The app-local copy** is `tools/copyucrt/copyucrt.cmd`, wired by `copy_ucrt_local()` as a post-build step.
+  It derives the VC redist dir from **`$(VCInstallDir)`** — `$(VCToolsRedistDir)` is NOT a defined MSBuild
+  property (measured: it comes back empty); `$(WindowsSdkDir)`/`$(UCRTVersion)` are real. Like `--target-os`,
+  `--crt` is **premake-only** so far.
+
 ## Architectures in the generated solution
 - **`--architecture` (premake `Common.lua`)** chooses which CPU platforms the `.sln` CONTAINS: a comma list of
   `x86,x64,arm,arm64` (or `all`); unset = `x86,x64`, the pair repos declared by hand before. Consumers call

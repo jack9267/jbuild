@@ -139,6 +139,38 @@ function xp_options(defaults)
 		}
 	}
 
+	-- The full CRT selector, superseding --use-msvcrt (which stays as the on/off/release alias above).
+	-- When set it decides the C runtime outright; left out, the legacy --use-msvcrt path is byte-identical
+	-- to before. See crt_mode()/xp_crt_workspace().
+	newoption {
+		trigger = "crt",
+		value = "MODE",
+		default = defaults.crt,
+		description = "Which C runtime to link (supersedes --use-msvcrt)",
+		allowed = {
+			{ "msvcrt",     "Windows' own msvcrt.dll via VC-LTL5 - tiny, nothing to ship, runs XP+" },
+			{ "static",     "The toolset's own UCRT, linked static (/MT) - self-contained" },
+			{ "dynamic",    "The toolset's own UCRT, linked dynamic (/MD) - needs the runtime present on the target" },
+			{ "ucrt-local", "Dynamic (/MD) UCRT copied app-local - runs XP SP3+ with nothing installed" }
+		}
+	}
+
+	-- The Debug config's CRT, mirroring --crt. Debug DEFAULTS to the static (debug) UCRT whatever --crt is,
+	-- so leak detection and the debug heap keep working; set this to match --crt (or anything else) when a
+	-- use case wants it. Has NO premake default on purpose - the "static" default lives in crt_pair(), so it
+	-- only applies on the --crt path and never overrides the legacy --use-msvcrt mapping.
+	newoption {
+		trigger = "crt-debug",
+		value = "MODE",
+		description = "The Debug config's C runtime (default: static, for the debug heap / leak detection)",
+		allowed = {
+			{ "msvcrt",     "Windows' own msvcrt.dll via VC-LTL5" },
+			{ "static",     "The toolset's own UCRT, linked static (/MT) - keeps the debug heap" },
+			{ "dynamic",    "The toolset's own UCRT, linked dynamic (/MD)" },
+			{ "ucrt-local", "Dynamic (/MD) UCRT copied app-local (incl. the non-redistributable debug DLLs)" }
+		}
+	}
+
 	-- XP's loader never patches a LoadLibrary'd module's _tls_index, so its thread_local reads
 	-- garbage. Off because Common.lua already fixes that from the other end for everything that
 	-- is not an executable, with /Zc:threadSafeInit-. On for a DLL with real thread_local of its
@@ -210,21 +242,50 @@ function needs_downlevel()
 	return support_winxp()
 end
 
-function use_msvcrt()
-	-- The plain option question. msvcrt availability is PER ARCH (Windows 2000 x86 has no VC-LTL tier, its
-	-- msvcrt.dll being too old) and use_vc_ltl simply skips an arch with no tier; the menu also doesn't offer
-	-- msvcrt for a 2000 target. So nothing OS-specific belongs here.
-	local o = _OPTIONS["use-msvcrt"]
-	return o == "on" or o == "release"
+-- The CRT PER CONFIG, as (release_mode, debug_mode). --crt sets the release / non-Debug CRT, and Debug
+-- DEFAULTS to "static" so a debug build keeps MSVC's debug heap and leak detection (_CrtDumpMemoryLeaks /
+-- _CrtSetDbgFlag); --crt-debug overrides the Debug CRT. With no --crt, the legacy --use-msvcrt path is
+-- preserved exactly (on = msvcrt both, release = msvcrt/static split, off = static both). Each mode is
+-- "msvcrt", "static", "dynamic", "ucrt-local", or nil (no explicit choice - Common.lua's static UCRT
+-- stands, which is the same as "static").
+local function crt_pair()
+	local rel, dbg
+
+	if _OPTIONS["crt"] then
+		rel = _OPTIONS["crt"]
+		dbg = "static"
+	else
+		local m = _OPTIONS["use-msvcrt"]
+		if     m == "on"      then rel, dbg = "msvcrt", "msvcrt"
+		elseif m == "release" then rel, dbg = "msvcrt", "static"
+		elseif m == "off"     then rel, dbg = "static", "static"
+		end
+	end
+
+	if _OPTIONS["crt-debug"] then dbg = _OPTIONS["crt-debug"] end
+
+	return rel, dbg
 end
 
--- The filter VC-LTL is limited to, or nil for all configs. "release" uses "not Debug" rather than
--- "Release" so it covers EVERY non-Debug configuration - GTAC's "Public Release" and RelWithDebInfo
--- included - the same way Common.lua's DEPENDENCY_CONFIG and release flags decide release-ness. Only
--- Debug keeps the toolset's own static CRT, so its debug heap and leak detection (_CrtDumpMemoryLeaks /
--- _CrtSetDbgFlag) still work - the point of a debug diagnostic build.
+function use_msvcrt()
+	-- True whenever VC-LTL's msvcrt.dll is the CRT in ANY config. msvcrt availability is PER ARCH (Windows
+	-- 2000 x86 has no VC-LTL tier, its msvcrt.dll being too old) and use_vc_ltl simply skips an arch with
+	-- no tier; the menu also doesn't offer msvcrt for a 2000 target. So nothing OS-specific belongs here.
+	local rel, dbg = crt_pair()
+	return rel == "msvcrt" or dbg == "msvcrt"
+end
+
+-- The config filter VC-LTL is limited to: nil (both configs msvcrt), "not configurations:Debug" (release
+-- only), or "configurations:Debug" (debug only). "not Debug" covers EVERY non-Debug configuration - GTAC's
+-- "Public Release" and RelWithDebInfo included - the same way Common.lua's DEPENDENCY_CONFIG and release
+-- flags decide release-ness.
 function msvcrt_config_filter()
-	return (_OPTIONS["use-msvcrt"] == "release") and "not configurations:Debug" or nil
+	local rel, dbg = crt_pair()
+	local r, d = (rel == "msvcrt"), (dbg == "msvcrt")
+	if r and d then return nil end
+	if r then return "not configurations:Debug" end
+	if d then return "configurations:Debug" end
+	return nil
 end
 
 -- Set once xp_workspace() has applied either piece at workspace scope, where it reaches every
@@ -514,14 +575,65 @@ function xp_subsystem(subsystem)
 	patch_subsystem_postbuild()
 end
 
+-- Ship the UCRT (and the VC runtime) app-local for --crt=ucrt-local, so a /MD binary runs on XP SP3+
+-- with nothing installed. Per arch (the redist folder is x86/x64, not $(Platform)'s Win32); the wrapper
+-- copies the redistributable release set always and, for Debug, the non-redistributable debug DLLs too
+-- (ucrtbased / vcruntime140d), so a local debug build runs - that build cannot be shared. Non-StaticLib
+-- only (nothing is deployed beside an archive). Paths come from MSBuild macros, resolved at build time.
+local function copy_ucrt_local(cfg)
+	local wrapper = path.translate(path.getabsolute("../tools/copyucrt/copyucrt.cmd", XP_SCRIPT_DIR), "\\")
+
+	for _, p in ipairs({ { arch = "x86", dir = "x86" }, { arch = "x86_64", dir = "x64" } }) do
+		-- $(VCInstallDir), not $(VCToolsRedistDir) - the latter is not a defined MSBuild property (empty);
+		-- the wrapper derives the redist dir from VCInstallDir. $(WindowsSdkDir)/$(UCRTVersion) are real.
+		local terms = { "architecture:" .. p.arch, "not kind:StaticLib" }
+		if cfg then table.insert(terms, cfg) end
+
+		filter (terms)
+			postbuildcommands { string.format(
+				'call "%s" "$(TargetDir)" %s "$(Configuration)" "$(VCInstallDir)" "$(WindowsSdkDir)" "$(UCRTVersion)"',
+				wrapper, p.dir) }
+	end
+
+	filter {}
+end
+
+-- Apply one CRT mode under one config filter ("configurations:Debug" / "not configurations:Debug"). Only
+-- the dynamic (/MD) modes need doing here - static is Common.lua's default, and msvcrt is handled by
+-- use_vc_ltl under msvcrt_config_filter(). staticruntime "Off" under the filter overrides that default for
+-- just those configs; it is set AFTER use_vc_ltl's own workspace-scope "On" so the per-config value wins.
+local function apply_dynamic_crt(mode, cfg)
+	if mode ~= "dynamic" and mode ~= "ucrt-local" then
+		return
+	end
+
+	filter { cfg }
+		staticruntime "Off"
+
+	filter {}
+
+	if mode == "ucrt-local" then
+		copy_ucrt_local(cfg)
+	end
+end
+
 function xp_workspace()
-	-- STATIC LIBRARIES WANT NONE OF THIS and are excluded throughout: the thunks object is pulled
-	-- into whatever links them, so linking it here as well only collides, and premake routes
-	-- linkoptions to <Lib> for a StaticLib, where lib.exe has no idea what /OPT:REF means.
+	-- CRT FIRST, and PER CONFIG. The dynamic (/MD) modes are independent of the XP downlevel machinery, so
+	-- they must be applied even when needs_downlevel() is false (a plain win10 target) - i.e. before the
+	-- early return below. VC-LTL (msvcrt) goes first so its workspace-scope staticruntime "On" is in place
+	-- before apply_dynamic_crt() flips the dynamic configs back to "Off" under their own filter.
+	local rel, dbg = crt_pair()
+
+	-- STATIC LIBRARIES WANT NONE OF THE THUNKS and are excluded throughout: the thunks object is pulled
+	-- into whatever links them, so linking it here as well only collides, and premake routes linkoptions
+	-- to <Lib> for a StaticLib, where lib.exe has no idea what /OPT:REF means.
 	if use_msvcrt() then
 		use_vc_ltl()
 		workspaceVCLTL = true
 	end
+
+	apply_dynamic_crt(rel, "not configurations:Debug")
+	apply_dynamic_crt(dbg, "configurations:Debug")
 
 	-- The Win32 APIs, a separate question from the CRT, applied when the target is downlevel: an explicit
 	-- --target-os of 2000..8.1, or - unchanged - the legacy support_winxp() (XP). v141_xp and a native
@@ -563,3 +675,41 @@ function xp_workspace()
 
 	workspaceThunks = true
 end
+
+-- A read-only action for the Generate driver: print the settings this configuration RESOLVES to -
+-- the consumer's premake5.lua defaults included - and write no project files, so the user can see
+-- what "generate now" commits to before choosing. Runs the consumer script like any action (so the
+-- options and their defaults are parsed), then prints and exits. The driver adds the Visual Studio
+-- version it already knows; everything here is what this file and Common.lua decide.
+newaction {
+	trigger = "jbuild-summary",
+	description = "Print the resolved build settings and exit (writes no project files)",
+	execute = function()
+		local function show(label, value) print(string.format("    %-14s %s", label, value)) end
+
+		show("Toolset", _OPTIONS["toolset"] or "?")
+
+		if _OPTIONS["spidermonkey-version"] then
+			show("SpiderMonkey", "esr" .. _OPTIONS["spidermonkey-version"])
+		end
+
+		show("Architectures", table.concat(common_platforms(), ", "))
+
+		local info = os_info()
+		local osLabel = info and info.label or (support_winxp() and "Windows XP" or "the toolset's own (Windows 10+)")
+		if needs_downlevel() then
+			osLabel = osLabel .. string.format("  (subsystem %s / %s)", subsystem_version("x86"), subsystem_version("x86_64"))
+		end
+		show("Target OS", osLabel)
+
+		local names = {
+			msvcrt       = "msvcrt.dll (VC-LTL5)",
+			static       = "static UCRT (/MT)",
+			dynamic      = "dynamic UCRT (/MD)",
+			["ucrt-local"] = "dynamic UCRT (/MD), app-local",
+		}
+		local rel, dbg = crt_pair()
+		show("CRT (debug)", names[dbg] or "the toolset's static UCRT")
+		show("CRT (release)", names[rel] or "the toolset's static UCRT")
+	end
+}

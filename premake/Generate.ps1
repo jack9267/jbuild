@@ -52,6 +52,15 @@ param(
 
     [string] $SupportWinXP = '',
     [string] $UseMsvcrt = '',
+
+    # Full CRT selector (supersedes -UseMsvcrt): msvcrt | static | dynamic | ucrt-local. Empty = consumer default.
+    [ValidateSet('', 'msvcrt', 'static', 'dynamic', 'ucrt-local')]
+    [string] $Crt = '',
+
+    # The Debug config's CRT (mirrors -Crt). Empty = static (keeps the debug heap / leak detection).
+    [ValidateSet('', 'msvcrt', 'static', 'dynamic', 'ucrt-local')]
+    [string] $CrtDebug = '',
+
     [string] $YYThunksTLS = '',
 
     [ValidateSet('0', '1', '2', '3', '4')]
@@ -69,6 +78,50 @@ $ErrorActionPreference = 'Stop'
 $script:Color = (-not $env:NO_COLOR) -and (-not [Console]::IsOutputRedirected)
 function Paint([string]$text, [string]$code) { if ($script:Color) { "$([char]27)[${code}m$text$([char]27)[0m" } else { $text } }
 function Tag([string]$name, [string]$code)   { Paint "[$name]" $code }
+
+# Resolved up front (independent of the menu) so the pre-generate summary below can run premake.
+$premake = Join-Path $PSScriptRoot 'premake5.exe'
+if (-not (Test-Path -LiteralPath $premake)) {
+    Write-Error "premake5.exe is missing from $PSScriptRoot - it is committed to jbuild; check the working tree is complete."
+    exit 1
+}
+$consumerPremake = Join-Path $Root 'premake'
+if (-not (Test-Path -LiteralPath (Join-Path $consumerPremake 'premake5.lua'))) {
+    Write-Error "No premake5.lua under '$consumerPremake'. Pass -Root <consumer repo root>."
+    exit 1
+}
+
+# The premake option flags (everything except the vsNNNN action), from the params/menu choices. Shared by
+# the pre-generate summary and the real generation so the two can never disagree.
+function Get-OptionArgs {
+    $a = @("--toolset=$Toolset")
+    if ($NoEnhancedInstructions) { $a += "--no-enhanced-instructions=$($NoEnhancedInstructions.ToLower())" }
+    if ($Architecture)           { $a += "--architecture=$($Architecture.ToLower())" }
+    if ($TargetOs)               { $a += "--target-os=$TargetOs" }
+    if ($WarningLevel)           { $a += "--warning-level=$WarningLevel" }
+    if ($SupportWinXP)           { $a += "--support-winxp=$($SupportWinXP.ToLower())" }
+    if ($UseMsvcrt)              { $a += "--use-msvcrt=$($UseMsvcrt.ToLower())" }
+    if ($Crt)                    { $a += "--crt=$($Crt.ToLower())" }
+    if ($CrtDebug)               { $a += "--crt-debug=$($CrtDebug.ToLower())" }
+    if ($YYThunksTLS)            { $a += "--yy-thunks-tls=$($YYThunksTLS.ToLower())" }
+    if ($SpiderMonkeyVersion)    { $a += "--spidermonkey-version=$SpiderMonkeyVersion" }
+    return $a
+}
+
+# Print what "generate now" commits to - resolved by premake itself (consumer premake5.lua defaults
+# included) via the read-only jbuild-summary action. Silent if the consumer doesn't provide it (no
+# XP.lua) or premake can't run; the real generation surfaces any actual problem.
+function Show-Summary {
+    $lines = @()
+    Push-Location $consumerPremake
+    try { $lines = & $premake jbuild-summary @(Get-OptionArgs) 2>$null } catch { } finally { Pop-Location }
+    $body = @($lines | Where-Object { $_ -match '^    \S' })
+    if (-not $body) { return }
+    Write-Host ''
+    Write-Host (Paint "These settings will be used (press 'o' below to change any):" '1;36')
+    Write-Host ("    {0,-14} {1}" -f 'Visual Studio', "Visual Studio $VisualStudio")
+    $body | ForEach-Object { Write-Host $_ }
+}
 
 # No VS version chosen (e.g. a double-click with no args): offer a menu. In a non-interactive context
 # (piped / CI, where stdin is redirected) fall back to the newest so a prompt never hangs the run.
@@ -90,6 +143,7 @@ if (-not $VisualStudio) {
         # Only the knobs the consumer's premake actually declares are offered, so we never pass an unknown
         # flag (premake errors on one). Discover declared options by scanning its premake tree for newoption
         # triggers. Each prompt defaults to Enter = keep premake5.lua's own default.
+        Show-Summary
         Write-Host ''
         Write-Host "Press 'o' to set options, or Enter to generate now " -NoNewline
         $gate = [Console]::ReadKey($true); Write-Host ''
@@ -168,10 +222,34 @@ if (-not $VisualStudio) {
                 $p = Read-Host "Enter 1-$($oses.Count) (or Enter to keep the default)"
                 if ($p -match '^\d+$' -and [int]$p -ge 1 -and [int]$p -le $oses.Count) { $TargetOs = $oses[[int]$p - 1].k }
             }
-            # CRT - not offered for a Windows 2000 target (its x86 msvcrt.dll predates VC-LTL's XP floor).
-            if (($declared -contains 'use-msvcrt') -and -not $UseMsvcrt -and $TargetOs -ne 'win2000') {
-                $p = Read-Host "`nCRT?  [Enter] keep default / 1 msvcrt (VC-LTL5) / 2 static UCRT"
-                if ($p -eq '1') { $UseMsvcrt = 'On' } elseif ($p -eq '2') { $UseMsvcrt = 'Off' }
+            # CRT - the full selector (msvcrt / static / dynamic / app-local UCRT), offered when the consumer
+            # declares --crt. Sets --crt, which supersedes --use-msvcrt; [Enter] keeps the consumer's default.
+            if (($declared -contains 'crt') -and -not $Crt -and -not $UseMsvcrt) {
+                Write-Host ''
+                Write-Host (Paint 'CRT - which C runtime?' '1;36')
+                Write-Host ("  {0} Keep the consumer's default" -f (Paint '[Enter]' '0;36'))
+                Write-Host ("  {0} msvcrt.dll via VC-LTL5 - small, nothing to ship, runs XP+" -f (Paint '[1]' '0;36'))
+                Write-Host ("  {0} Static UCRT (/MT) - self-contained, keeps MSVC's debug heap" -f (Paint '[2]' '0;36'))
+                Write-Host ("  {0} Dynamic UCRT (/MD) - needs the runtime present on the target" -f (Paint '[3]' '0;36'))
+                Write-Host ("  {0} Dynamic UCRT, copied app-local - runs XP SP3+ with nothing installed" -f (Paint '[4]' '0;36'))
+                if ($TargetOs -eq 'win2000') {
+                    Write-Host (Paint "  note: for a Windows 2000 target, msvcrt (1) applies to x64 only - x86 has no VC-LTL tier and stays static." '0;33')
+                }
+                $p = Read-Host "Enter 1-4 (or Enter to keep the default)"
+                switch ($p) { '1' { $Crt = 'msvcrt' } '2' { $Crt = 'static' } '3' { $Crt = 'dynamic' } '4' { $Crt = 'ucrt-local' } }
+
+                # Debug CRT - only worth asking once a non-default Release CRT is chosen. Enter keeps the
+                # static (debug) UCRT, so the debug heap and leak detection keep working whatever Release uses.
+                if ($Crt -and -not $CrtDebug) {
+                    Write-Host ''
+                    Write-Host (Paint 'Debug CRT?  (Enter keeps static - the debug heap & leak detection)' '1;36')
+                    Write-Host ("  {0} msvcrt.dll via VC-LTL5" -f (Paint '[1]' '0;36'))
+                    Write-Host ("  {0} Static UCRT (/MT) - the default" -f (Paint '[2]' '0;36'))
+                    Write-Host ("  {0} Dynamic UCRT (/MD)" -f (Paint '[3]' '0;36'))
+                    Write-Host ("  {0} Dynamic UCRT, app-local (incl. non-redistributable debug DLLs)" -f (Paint '[4]' '0;36'))
+                    $p = Read-Host "Enter 1-4 (or Enter for static)"
+                    switch ($p) { '1' { $CrtDebug = 'msvcrt' } '2' { $CrtDebug = 'static' } '3' { $CrtDebug = 'dynamic' } '4' { $CrtDebug = 'ucrt-local' } }
+                }
             }
             # (Building is offered after generation, where the configurations/platforms are read from the .sln.)
         }
@@ -179,27 +257,7 @@ if (-not $VisualStudio) {
     else { $VisualStudio = $versions[0] }
 }
 
-$premake = Join-Path $PSScriptRoot 'premake5.exe'
-if (-not (Test-Path -LiteralPath $premake)) {
-    Write-Error "premake5.exe is missing from $PSScriptRoot - it is committed to jbuild; check the working tree is complete."
-    exit 1
-}
-
-$consumerPremake = Join-Path $Root 'premake'
-if (-not (Test-Path -LiteralPath (Join-Path $consumerPremake 'premake5.lua'))) {
-    Write-Error "No premake5.lua under '$consumerPremake'. Pass -Root <consumer repo root>."
-    exit 1
-}
-
-$arguments = @("vs$VisualStudio", "--toolset=$Toolset")
-if ($NoEnhancedInstructions) { $arguments += "--no-enhanced-instructions=$($NoEnhancedInstructions.ToLower())" }
-if ($Architecture)           { $arguments += "--architecture=$($Architecture.ToLower())" }
-if ($TargetOs)               { $arguments += "--target-os=$TargetOs" }
-if ($WarningLevel)           { $arguments += "--warning-level=$WarningLevel" }
-if ($SupportWinXP)           { $arguments += "--support-winxp=$($SupportWinXP.ToLower())" }
-if ($UseMsvcrt)              { $arguments += "--use-msvcrt=$($UseMsvcrt.ToLower())" }
-if ($YYThunksTLS)            { $arguments += "--yy-thunks-tls=$($YYThunksTLS.ToLower())" }
-if ($SpiderMonkeyVersion)    { $arguments += "--spidermonkey-version=$SpiderMonkeyVersion" }
+$arguments = @("vs$VisualStudio") + (Get-OptionArgs)
 
 $xp = if ($SupportWinXP) { $SupportWinXP -eq 'On' } else { $true }
 Write-Host "$(Tag 'premake' '0;36') $(& $premake --version)"
