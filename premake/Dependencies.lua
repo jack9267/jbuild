@@ -45,7 +45,14 @@ function dependencies_workspace()
 
 	-- MSBuild macros, so switching platform, toolset or configuration needs no regeneration. A
 	-- directory that does not exist is ignored and an unset macro never matches.
+	--
+	-- $(WindowsSDK_IncludePath) is listed FIRST, ahead of the DirectX SDK, so the modern Windows SDK's
+	-- own d2d1/dwrite/wincodec/dxgi headers win. The June-2010 DXSDK ships ancient copies of those same
+	-- headers next to its exclusive ones (dxerr.h, the old d3dx/XNAMath); without the Windows SDK ahead
+	-- of it, those old copies shadow the real ones and break any modern Direct2D/WIC/DWrite consumer
+	-- (e.g. the WebView2 host). This keeps the DXSDK global - only its exclusive headers are now reached.
 	includedirs {
+		"$(WindowsSDK_IncludePath)",
 		"$(dxsdk_dir)\\include",
 		"$(jdependencies_home)\\include",
 		"$(jdependencies_home)\\include\\mongoose6",
