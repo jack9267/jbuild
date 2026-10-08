@@ -36,6 +36,11 @@
 --
 -- A default is only a default: --support-winxp=off on the command line still wins over one.
 
+-- This file's own directory, captured at include time (premake points _SCRIPT_DIR at each included file
+-- while it runs), so the Windows 2000 post-link patcher under ../tools can be located relative to jbuild
+-- itself, whatever the consumer's working directory is.
+local XP_SCRIPT_DIR = _SCRIPT_DIR
+
 -- ===== TARGET OS (--target-os) =====
 -- An explicit --target-os supersedes the legacy support-winxp/toolset path and drives the subsystem
 -- version, the YY-Thunks obj and the VC-LTL tier TOGETHER, so the three cannot drift apart. When
@@ -399,9 +404,32 @@ local function subsystem_version(arch)
 	return arch == "x86" and "5.01" or "5.02"
 end
 
+-- "maj.min" as a comparable number (5.00->500, 5.02->502, 6.00->600, 10.00->1000) - a plain string
+-- compare is wrong ("10.00" < "5.02" lexically).
+local function ver_num(v)
+	local maj, min = v:match("^(%d+)%.(%d+)$")
+	return tonumber(maj) * 100 + tonumber(min)
+end
+
+-- The linker floors /SUBSYSTEM at 5.01 (x86) / 5.02 (x64): anything lower is LNK4010 and silently
+-- becomes 6.0. So the LINK uses the greater of the wanted version and the floor (no warning, no 6.0
+-- surprise), and a wanted-below-floor target (only Windows 2000 x86, 5.00) is corrected to its real
+-- value by a post-link PE patch - see patch_subsystem_postbuild().
+local SUBSYSTEM_FLOOR = { x86 = "5.01", x86_64 = "5.02" }
+
+local function link_subsystem_version(arch)
+	local want = subsystem_version(arch)
+	local floor = SUBSYSTEM_FLOOR[arch] or "5.01"
+	return ver_num(want) < ver_num(floor) and floor or want
+end
+
+local function needs_subsystem_patch(arch)
+	return ver_num(subsystem_version(arch)) < ver_num(SUBSYSTEM_FLOOR[arch] or "5.01")
+end
+
 local SUBSYSTEM_VERSIONS = {
-	{ arch = "x86",    version = subsystem_version("x86") },
-	{ arch = "x86_64", version = subsystem_version("x86_64") },
+	{ arch = "x86",    version = link_subsystem_version("x86") },
+	{ arch = "x86_64", version = link_subsystem_version("x86_64") },
 }
 
 local SUBSYSTEMS = {
@@ -422,6 +450,28 @@ local function subsystem_linkoptions(subsystem, kindFilter)
 
 		filter (terms)
 			linkoptions { "/SUBSYSTEM:" .. subsystem .. "," .. target.version }
+	end
+
+	filter {}
+end
+
+-- Post-link PE patch for a below-floor target (only Windows 2000 x86, 5.00): the link above used the
+-- 5.01 floor, so this stamps the real OS/subsystem 5.0 into the header afterwards. Non-StaticLib only
+-- (an archive has no PE header). The patcher is compiled on first use by its wrapper, not a solution
+-- project - tools/pesubsys. A no-op for every other target (nothing is below its floor).
+local function patch_subsystem_postbuild()
+	local wrapper = path.translate(path.getabsolute("../tools/pesubsys/pesubsys.cmd", XP_SCRIPT_DIR), "\\")
+
+	for _, arch in ipairs({ "x86", "x86_64" }) do
+		if needs_subsystem_patch(arch) then
+			local maj, min = subsystem_version(arch):match("^(%d+)%.(%d+)$")
+
+			-- $(TargetPath) is MSBuild's absolute path to the primary output - robust wherever the
+			-- post-build runs, unlike premake's own buildtarget token which can come out relative.
+			filter { "architecture:" .. arch, "not kind:StaticLib" }
+				postbuildcommands { string.format('call "%s" "$(TargetPath)" %d %d',
+					wrapper, tonumber(maj), tonumber(min)) }
+		end
 	end
 
 	filter {}
@@ -461,6 +511,7 @@ function xp_subsystem(subsystem)
 	end
 
 	subsystem_linkoptions(subsystem)
+	patch_subsystem_postbuild()
 end
 
 function xp_workspace()
@@ -488,6 +539,9 @@ function xp_workspace()
 	for _, entry in ipairs(SUBSYSTEMS) do
 		subsystem_linkoptions(entry.subsystem, "kind:" .. entry.kind)
 	end
+
+	-- Windows 2000 x86 only: correct the header 5.01 -> 5.00 after linking (see the function).
+	patch_subsystem_postbuild()
 
 	-- DLLs only - the loader handles an executable's own TLS either way. The alternatename hands
 	-- YY-Thunks the CRT entry it replaces, decorated on x86.

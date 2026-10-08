@@ -35,6 +35,19 @@ build, install, and link, across three generators that must stay in lockstep. Th
   version, YY-Thunks object, and VC-LTL tier PER ARCH from one table. Notably x64 has no floor below XP x64
   (5.02), so a `win2000` x64 build targets XP x64; `win81` reuses the Win8 thunks. `--support-winxp=on` stays
   as the equivalent of `--target-os=winxp` for back-compat. The XP machinery only ever touches x86/x86_64.
+  **`--target-os` is premake-only** (CMake `j-xp.cmake` still uses the fixed `support-winxp` 5.01/5.02 path;
+  `make/` has no XP subsystem logic). So win2000 — and the subsystem patch below — live only in premake; the
+  lockstep rule doesn't yet apply to them because the feature doesn't exist in the other two. Porting
+  `--target-os` to CMake/make (which would bring win2000 with it) is the follow-up if XP-via-those is wanted.
+- **Windows 2000 (5.00) needs a post-link PE patch — the linker won't emit it.** `link.exe` floors
+  `/SUBSYSTEM` at 5.01 (x86) / 5.02 (x64): 5.00 is **LNK4010** and silently becomes 6.00 (verified — a 6.0
+  binary loads on neither 2000 nor XP). So for a below-floor target (only win2000 x86) the build LINKS at the
+  5.01 floor — no warning — then stamps the real OS+subsystem 5.0 into the PE optional header after linking.
+  The patcher is **`tools/pesubsys/pesubsys.c`**, compiled on first use by **`pesubsys.cmd`** (not a solution
+  project — one-time build, cached beside the source, gitignored) and wired as a post-build step by
+  `patch_subsystem_postbuild()` under `architecture:x86, not kind:StaticLib`. It recomputes the image checksum
+  only if one is present (a `/RELEASE`-less build leaves it 0). No other target is below its floor, so this is
+  a no-op everywhere else. `editbin` shares link.exe's floor and can't do it either.
 
 ## Architectures in the generated solution
 - **`--architecture` (premake `Common.lua`)** chooses which CPU platforms the `.sln` CONTAINS: a comma list of

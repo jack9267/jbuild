@@ -1,2 +1,7 @@
 # jbuild's own CMake build scratch (relocated here from each consuming repo's root).
 CMake.tmp/
+
+# pesubsys is compiled on first use by its own wrapper, not committed (source + wrapper are).
+tools/pesubsys/pesubsys.exe
+tools/pesubsys/*.tmp.exe
+tools/pesubsys/*.obj
