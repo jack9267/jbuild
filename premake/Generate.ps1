@@ -32,11 +32,13 @@ param(
 
     [switch] $Build,
 
-    [ValidateSet('Debug', 'Release')]
-    [string] $Configuration = 'Release',
+    # Build configuration; empty = chosen from the solution's own configurations (a prompt, or the default).
+    [string] $Configuration = '',
 
-    [ValidateSet('Win32', 'x64')]
-    [string] $Platform = 'Win32',
+    # Empty lets the build step choose (a prompt, or the solution's first platform); 'All' builds every
+    # platform the generated solution offers.
+    [ValidateSet('', 'Win32', 'x64', 'All')]
+    [string] $Platform = '',
 
     [string] $NoEnhancedInstructions = '',
     [string] $SupportWinXP = '',
@@ -101,12 +103,7 @@ if (-not $VisualStudio) {
                 $p = Read-Host "`nCRT?  [Enter] keep default / 1 msvcrt (VC-LTL5) / 2 static UCRT"
                 if ($p -eq '1') { $UseMsvcrt = 'On' } elseif ($p -eq '2') { $UseMsvcrt = 'Off' }
             }
-            # Build after generating?
-            if (-not $Build) {
-                $p = Read-Host "`nBuild after generating?  [Enter] no, just generate / 1 Release / 2 Debug"
-                if ($p -eq '1') { $Build = $true; $Configuration = 'Release' }
-                elseif ($p -eq '2') { $Build = $true; $Configuration = 'Debug' }
-            }
+            # (Building is offered after generation, where the configurations/platforms are read from the .sln.)
         }
     }
     else { $VisualStudio = $versions[0] }
@@ -149,7 +146,50 @@ $solution = Get-ChildItem -LiteralPath $Root -Filter *.sln -File | Select-Object
 if (-not $solution) { Write-Error "premake generated no .sln under '$Root'."; exit 1 }
 Write-Host "solution   $($solution.FullName)"
 
-if (-not $Build) { exit 0 }
+# ---- optional build ----
+# The configurations and platforms come from the generated solution itself (ground truth for what's
+# supported - a consumer may define more than Debug/Release, or be one platform only).
+$slnText = Get-Content -LiteralPath $solution.FullName -Raw
+$slnPairs = [regex]::Matches($slnText, '(?m)^\s*(\w+)\|(\w+)\s*=\s*\1\|\2\s*$')
+$slnConfigs   = @($slnPairs | ForEach-Object { $_.Groups[1].Value }) | Sort-Object -Unique
+$slnPlatforms = @($slnPairs | ForEach-Object { $_.Groups[2].Value }) | Sort-Object -Unique
+if (-not $slnConfigs)   { $slnConfigs   = @('Release') }
+if (-not $slnPlatforms) { $slnPlatforms = @('Win32') }
+
+$interactive = [Environment]::UserInteractive -and -not [Console]::IsInputRedirected
+
+# Whether to build. Not asked for unless interactive; -Build (or picking a configuration below) opts in.
+if (-not $Build) {
+    if (-not $interactive) { exit 0 }   # generation only
+    Write-Host "`nBuild now? Pick a configuration, or press Enter to just generate and open it yourself:"
+    for ($i = 0; $i -lt $slnConfigs.Count; $i++) { Write-Host ("  [{0}] {1}" -f ($i + 1), $slnConfigs[$i]) }
+    $p = Read-Host "Enter 1-$($slnConfigs.Count) to build (or Enter to skip)"
+    if ([string]::IsNullOrWhiteSpace($p)) { exit 0 }
+    elseif ($p -match '^\d+$' -and [int]$p -ge 1 -and [int]$p -le $slnConfigs.Count) { $Build = $true; $Configuration = $slnConfigs[[int]$p - 1] }
+    else { Write-Error "Not a choice: '$p'."; exit 1 }
+}
+
+# Resolve the configuration (prefer Release) and validate it against the solution.
+if (-not $Configuration) { $Configuration = if ($slnConfigs -contains 'Release') { 'Release' } else { $slnConfigs[0] } }
+elseif ($slnConfigs -notcontains $Configuration) {
+    Write-Error "The solution has no '$Configuration' configuration (has: $($slnConfigs -join ', '))."; exit 1
+}
+
+# Resolve the platform: a value, or interactively from the solution's own platforms (+ All when >1).
+if (-not $Platform) {
+    if ($interactive) {
+        Write-Host "`nBuild which platform?"
+        for ($i = 0; $i -lt $slnPlatforms.Count; $i++) { Write-Host ("  [{0}] {1}{2}" -f ($i + 1), $slnPlatforms[$i], $(if ($i -eq 0) { '  (default)' } else { '' })) }
+        $allIdx = $slnPlatforms.Count + 1
+        if ($slnPlatforms.Count -gt 1) { Write-Host ("  [{0}] All ({1})" -f $allIdx, ($slnPlatforms -join ' + ')) }
+        $p = Read-Host 'Enter a number (or Enter for the default)'
+        if ([string]::IsNullOrWhiteSpace($p)) { $Platform = $slnPlatforms[0] }
+        elseif ($p -match '^\d+$' -and [int]$p -ge 1 -and [int]$p -le $slnPlatforms.Count) { $Platform = $slnPlatforms[[int]$p - 1] }
+        elseif ($slnPlatforms.Count -gt 1 -and $p -eq "$allIdx") { $Platform = 'All' }
+        else { Write-Error "Not a choice: '$p'."; exit 1 }
+    }
+    else { $Platform = $slnPlatforms[0] }
+}
 
 # MSBuild is wherever this machine's Visual Studio put it; vswhere is the supported way to ask.
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
@@ -160,8 +200,16 @@ if (-not (Test-Path -LiteralPath $vswhere)) {
 $msbuild = & $vswhere -latest -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
 if (-not $msbuild) { Write-Error 'No MSBuild was found. Build from Visual Studio instead.'; exit 1 }
 
-Write-Host ''
-Write-Host "building   $Configuration / $Platform"
-Write-Host ''
-& $msbuild $solution.FullName "/p:Configuration=$Configuration" "/p:Platform=$Platform" /v:minimal /nologo /m
-exit $LASTEXITCODE
+$targets = if ($Platform -eq 'All') { $slnPlatforms } else { @($Platform) }
+foreach ($plat in $targets) {
+    if ($slnPlatforms -notcontains $plat) {
+        Write-Warning "The solution has no '$plat' platform (has: $($slnPlatforms -join ', ')); skipping."
+        continue
+    }
+    Write-Host ''
+    Write-Host "building   $Configuration / $plat"
+    Write-Host ''
+    & $msbuild $solution.FullName "/p:Configuration=$Configuration" "/p:Platform=$plat" /v:minimal /nologo /m
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+exit 0
