@@ -126,11 +126,13 @@ function xp_options(defaults)
 
 	-- ITS OWN SWITCH, not something --support-winxp turns on quietly: it changes which CRT every
 	-- binary links. Worth having away from XP too - nothing to redistribute, and imports replace
-	-- the static CRT, a fairly fixed ~130 KB a binary.
+	-- the static CRT, a fairly fixed ~130 KB a binary. DEFAULTS TO "release" (the matching cmake presets
+	-- default to msvcrt too), so a consumer that wants the small no-redist CRT need not say so; pass
+	-- useMsvcrt = "off" to opt back out to the static UCRT.
 	newoption {
 		trigger = "use-msvcrt",
 		value = "VALUE",
-		default = defaults.useMsvcrt,
+		default = defaults.useMsvcrt or "release",
 		description = "Link Windows' own msvcrt.dll as the CRT, through VC-LTL5",
 		allowed = {
 			{ "on",      "VC-LTL5 in every configuration" },

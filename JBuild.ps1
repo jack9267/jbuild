@@ -202,12 +202,15 @@ function Invoke-Cmake {
         elseif ($SupportWinXP -eq 'Off') { $defs += '-DSUPPORT_WINXP=OFF' }
     }
 
-    # Runtime - static UCRT (default) or msvcrt.dll via VC-LTL5. cmake has no dynamic / app-local UCRT equivalent.
+    # Runtime - msvcrt.dll via VC-LTL5, or the static UCRT. Enter keeps the preset's own default (the non-XP
+    # presets default to msvcrt, the _xp ones to static), so static must pass -DUSE_MSVCRT=OFF explicitly to
+    # override it. cmake has no dynamic / app-local UCRT equivalent.
     if ($interactive) {
-        $p = Read-Host "`nCRT?  [Enter] static UCRT (default) / 1 msvcrt (VC-LTL5)"
-        if ($p -eq '1') { $defs += '-DUSE_MSVCRT=ON' }
+        $p = Read-Host "`nCRT?  [Enter] the preset default / 1 msvcrt (VC-LTL5) / 2 static UCRT"
+        if ($p -eq '1') { $defs += '-DUSE_MSVCRT=ON' } elseif ($p -eq '2') { $defs += '-DUSE_MSVCRT=OFF' }
     }
     elseif ($UseMsvcrt -eq 'On' -or $Crt -eq 'msvcrt') { $defs += '-DUSE_MSVCRT=ON' }
+    elseif ($UseMsvcrt -eq 'Off' -or $Crt -eq 'static') { $defs += '-DUSE_MSVCRT=OFF' }
 
     Write-Host "$(Tag 'cmake' '0;36') $(& $cmake.Source --version | Select-Object -First 1)"
     Write-Host "$(Tag 'configure' '0;32') preset $preset $($defs -join ' ')"
