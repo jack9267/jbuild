@@ -1,0 +1,2 @@
+# jbuild's own CMake build scratch (relocated here from each consuming repo's root).
+CMake.tmp/

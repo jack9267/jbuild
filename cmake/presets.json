@@ -1,0 +1,308 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 18,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "installDir": "${sourceDir}",
+      "cacheVariables": {
+        "FORCE_STATIC_VCRT": "ON"
+      }
+    },
+    {
+      "name": "winxp-modern",
+      "hidden": true,
+      "inherits": "base",
+      "description": "Non-XP toolset targeting XP via VC-LTL5 + YY-Thunks (matches the non-_XP bats).",
+      "cacheVariables": {
+        "FORCE_STATIC_VCRT": "ON",
+        "SUPPORT_WINXP": "ON"
+      },
+      "environment": {
+        "YY_Thunks_Root": "${sourceDir}/../YY-Thunks"
+      }
+    },
+    {
+      "name": "vs2022-win32",
+      "displayName": "Visual Studio 2022 Win32 (static VCRT)",
+      "description": "Matches Configure_VS2022.bat / VS2022.bat",
+      "inherits": "winxp-modern",
+      "generator": "Visual Studio 17 2022",
+      "architecture": {
+        "value": "Win32",
+        "strategy": "set"
+      },
+      "toolset": {
+        "value": "v143",
+        "strategy": "set"
+      },
+      "binaryDir": "${sourceDir}/jbuild/cmake/bat/CMake.tmp/Visual Studio 17 2022/Win32/v143_static"
+    },
+    {
+      "name": "vs2022-x64",
+      "displayName": "Visual Studio 2022 x64 (static VCRT)",
+      "description": "Matches Configure_VS2022_x64.bat / VS2022_x64.bat",
+      "inherits": "winxp-modern",
+      "generator": "Visual Studio 17 2022",
+      "architecture": {
+        "value": "x64",
+        "strategy": "set"
+      },
+      "toolset": {
+        "value": "v143",
+        "strategy": "set"
+      },
+      "binaryDir": "${sourceDir}/jbuild/cmake/bat/CMake.tmp/Visual Studio 17 2022/x64/v143_static"
+    },
+    {
+      "name": "vs2019-win32",
+      "displayName": "Visual Studio 2019 Win32 (static VCRT)",
+      "description": "Matches Configure_VS2019.bat / VS2019.bat",
+      "inherits": "winxp-modern",
+      "generator": "Visual Studio 16 2019",
+      "architecture": {
+        "value": "Win32",
+        "strategy": "set"
+      },
+      "toolset": {
+        "value": "v142",
+        "strategy": "set"
+      },
+      "binaryDir": "${sourceDir}/jbuild/cmake/bat/CMake.tmp/Visual Studio 16 2019/Win32/v142_static"
+    },
+    {
+      "name": "vs2019-x64",
+      "displayName": "Visual Studio 2019 x64 (static VCRT)",
+      "description": "Matches Configure_VS2019_x64.bat / VS2019_x64.bat",
+      "inherits": "winxp-modern",
+      "generator": "Visual Studio 16 2019",
+      "architecture": {
+        "value": "x64",
+        "strategy": "set"
+      },
+      "toolset": {
+        "value": "v142",
+        "strategy": "set"
+      },
+      "binaryDir": "${sourceDir}/jbuild/cmake/bat/CMake.tmp/Visual Studio 16 2019/x64/v142_static"
+    },
+    {
+      "name": "vs2019-xp-win32",
+      "displayName": "Visual Studio 2019 Win32 XP (static VCRT)",
+      "description": "Matches VS2019_XP.bat (v141_xp, no enhanced instructions)",
+      "inherits": "base",
+      "generator": "Visual Studio 16 2019",
+      "architecture": {
+        "value": "Win32",
+        "strategy": "set"
+      },
+      "toolset": {
+        "value": "v141_xp",
+        "strategy": "set"
+      },
+      "binaryDir": "${sourceDir}/jbuild/cmake/bat/CMake.tmp/Visual Studio 16 2019/Win32/v141_xp_static",
+      "cacheVariables": {
+        "FORCE_STATIC_VCRT": "ON",
+        "NO_ENHANCED_INSTRUCTIONS": "ON"
+      }
+    },
+    {
+      "name": "vs2019-xp-x64",
+      "displayName": "Visual Studio 2019 x64 XP (static VCRT)",
+      "description": "Matches VS2019_XP_x64.bat (v141_xp)",
+      "inherits": "base",
+      "generator": "Visual Studio 16 2019",
+      "architecture": {
+        "value": "x64",
+        "strategy": "set"
+      },
+      "toolset": {
+        "value": "v141_xp",
+        "strategy": "set"
+      },
+      "binaryDir": "${sourceDir}/jbuild/cmake/bat/CMake.tmp/Visual Studio 16 2019/x64/v141_xp_static"
+    },
+    {
+      "name": "vs2017-xp-win32",
+      "displayName": "Visual Studio 2017 Win32 XP (static VCRT)",
+      "description": "Matches Configure_VS2017_XP.bat / VS2017_XP.bat",
+      "inherits": "base",
+      "generator": "Visual Studio 15 2017",
+      "architecture": {
+        "value": "Win32",
+        "strategy": "set"
+      },
+      "toolset": {
+        "value": "v141_xp",
+        "strategy": "set"
+      },
+      "binaryDir": "${sourceDir}/jbuild/cmake/bat/CMake.tmp/Visual Studio 15 2017/Win32/v141_xp_static",
+      "cacheVariables": {
+        "FORCE_STATIC_VCRT": "ON",
+        "NO_ENHANCED_INSTRUCTIONS": "ON"
+      }
+    },
+    {
+      "name": "vs2017-xp-x64",
+      "displayName": "Visual Studio 2017 x64 XP (static VCRT)",
+      "description": "Matches Configure_VS2017_XP_x64.bat / VS2017_XP_x64.bat",
+      "inherits": "base",
+      "generator": "Visual Studio 15 2017",
+      "architecture": {
+        "value": "x64",
+        "strategy": "set"
+      },
+      "toolset": {
+        "value": "v141_xp",
+        "strategy": "set"
+      },
+      "binaryDir": "${sourceDir}/jbuild/cmake/bat/CMake.tmp/Visual Studio 15 2017/x64/v141_xp_static"
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "vs2022-win32-debug",
+      "displayName": "VS2022 Win32 Debug",
+      "configurePreset": "vs2022-win32",
+      "configuration": "Debug",
+      "targets": ["install"]
+    },
+    {
+      "name": "vs2022-win32-release",
+      "displayName": "VS2022 Win32 Release",
+      "configurePreset": "vs2022-win32",
+      "configuration": "Release",
+      "targets": ["install"]
+    },
+    {
+      "name": "vs2022-x64-debug",
+      "displayName": "VS2022 x64 Debug",
+      "configurePreset": "vs2022-x64",
+      "configuration": "Debug",
+      "targets": ["install"]
+    },
+    {
+      "name": "vs2022-x64-release",
+      "displayName": "VS2022 x64 Release",
+      "configurePreset": "vs2022-x64",
+      "configuration": "Release",
+      "targets": ["install"]
+    },
+    {
+      "name": "vs2019-win32-debug",
+      "displayName": "VS2019 Win32 Debug",
+      "configurePreset": "vs2019-win32",
+      "configuration": "Debug"
+    },
+    {
+      "name": "vs2019-win32-release",
+      "displayName": "VS2019 Win32 Release",
+      "configurePreset": "vs2019-win32",
+      "configuration": "Release"
+    },
+    {
+      "name": "vs2019-x64-debug",
+      "displayName": "VS2019 x64 Debug",
+      "configurePreset": "vs2019-x64",
+      "configuration": "Debug"
+    },
+    {
+      "name": "vs2019-x64-release",
+      "displayName": "VS2019 x64 Release",
+      "configurePreset": "vs2019-x64",
+      "configuration": "Release"
+    },
+    {
+      "name": "vs2019-xp-win32-debug",
+      "displayName": "VS2019 XP Win32 Debug",
+      "configurePreset": "vs2019-xp-win32",
+      "configuration": "Debug"
+    },
+    {
+      "name": "vs2019-xp-win32-release",
+      "displayName": "VS2019 XP Win32 Release",
+      "configurePreset": "vs2019-xp-win32",
+      "configuration": "Release"
+    },
+    {
+      "name": "vs2019-xp-x64-debug",
+      "displayName": "VS2019 XP x64 Debug",
+      "configurePreset": "vs2019-xp-x64",
+      "configuration": "Debug"
+    },
+    {
+      "name": "vs2019-xp-x64-release",
+      "displayName": "VS2019 XP x64 Release",
+      "configurePreset": "vs2019-xp-x64",
+      "configuration": "Release"
+    },
+    {
+      "name": "vs2017-xp-win32-debug",
+      "displayName": "VS2017 XP Win32 Debug",
+      "configurePreset": "vs2017-xp-win32",
+      "configuration": "Debug"
+    },
+    {
+      "name": "vs2017-xp-win32-release",
+      "displayName": "VS2017 XP Win32 Release",
+      "configurePreset": "vs2017-xp-win32",
+      "configuration": "Release"
+    },
+    {
+      "name": "vs2017-xp-x64-debug",
+      "displayName": "VS2017 XP x64 Debug",
+      "configurePreset": "vs2017-xp-x64",
+      "configuration": "Debug"
+    },
+    {
+      "name": "vs2017-xp-x64-release",
+      "displayName": "VS2017 XP x64 Release",
+      "configurePreset": "vs2017-xp-x64",
+      "configuration": "Release"
+    }
+  ],
+  "packagePresets": [],
+  "workflowPresets": [
+    {
+      "name": "vs2022-x64",
+      "displayName": "Configure + build + install VS2022 x64 (Debug then Release)",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "vs2022-x64"
+        },
+        {
+          "type": "build",
+          "name": "vs2022-x64-debug"
+        },
+        {
+          "type": "build",
+          "name": "vs2022-x64-release"
+        }
+      ]
+    },
+    {
+      "name": "vs2022-win32",
+      "displayName": "Configure + build + install VS2022 Win32 (Debug then Release)",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "vs2022-win32"
+        },
+        {
+          "type": "build",
+          "name": "vs2022-win32-debug"
+        },
+        {
+          "type": "build",
+          "name": "vs2022-win32-release"
+        }
+      ]
+    }
+  ]
+}
