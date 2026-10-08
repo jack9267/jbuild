@@ -5,12 +5,12 @@
 --     common_workspace()          -- after configurations/platforms, which its filters name
 --     common_project()            -- inside each project
 --
--- Nothing a repository should decide for itself belongs here - workspace name and location,
--- warning level, targetdir, which projects exist. Dependency trees are Dependencies.lua's, the
--- engine Galactic.lua's, warnings Warnings.lua's. See CLAUDE.md.
+-- Nothing a repo should decide for itself belongs here - workspace name/location, warning level,
+-- targetdir, which projects exist. Dependency trees are Dependencies.lua's, the engine Galactic.lua's,
+-- warnings Warnings.lua's. See CLAUDE.md.
 
--- v141_xp targets Windows XP and later but is not in VS2022; it comes from VS2017's targets, and
--- MSBuild reports MSB8020 without it. v143 targets Windows 10 and later.
+-- v141_xp targets Windows XP and later but is not in VS2022; it comes from VS2017's targets, and MSBuild
+-- reports MSB8020 without it. v143 targets Windows 10 and later.
 function common_options(defaultToolset)
 	newoption {
 		trigger = "toolset",
@@ -35,10 +35,10 @@ function common_options(defaultToolset)
 		}
 	}
 
-	-- Which CPU architectures the generated solution contains: a comma-separated list of x86, x64,
-	-- arm, arm64 (or "all" for every one). FREE-FORM rather than premake's `allowed`, which validates
-	-- a value whole and cannot express a comma list - common_platforms() parses and checks it. Unset
-	-- means x86,x64, the pair every repo declared by hand before this option existed.
+	-- Which CPU architectures the solution contains: a comma list of x86,x64,arm,arm64 (or "all").
+	-- FREE-FORM, not premake's `allowed` (which validates a value whole and can't express a comma
+	-- list) - common_platforms() parses and checks it. Unset = x86,x64, the pair every repo declared
+	-- by hand before this option existed.
 	newoption {
 		trigger = "architecture",
 		value = "LIST",
@@ -46,8 +46,8 @@ function common_options(defaultToolset)
 	}
 end
 
--- The premake platform name for each architecture token, and the order the solution's platform
--- dropdown always reads in regardless of how --architecture spelled the request.
+-- The premake platform name per architecture token, and the fixed order the solution's platform
+-- dropdown reads in regardless of how --architecture spelled the request.
 local PLATFORM_FOR_ARCH = {
 	x86   = "Win32",
 	x64   = "x64",
@@ -56,10 +56,9 @@ local PLATFORM_FOR_ARCH = {
 }
 local ARCH_ORDER = { "x86", "x64", "arm", "arm64" }
 
--- The platforms{} list the workspace is generated with, honouring --architecture (a comma list of
--- x86,x64,arm,arm64, or "all"); unset = x86,x64, what every repo declared by hand before. The
--- .sln-driven build menu then offers exactly what was generated, nothing more. A consumer calls this
--- in place of a hardcoded `platforms { "Win32", "x64" }`, AFTER common_options() has declared the option.
+-- The platforms{} list honouring --architecture (comma list of x86,x64,arm,arm64, or "all"); unset =
+-- x86,x64. The .sln-driven build menu then offers exactly what was generated. A consumer calls this in
+-- place of a hardcoded `platforms { "Win32", "x64" }`, AFTER common_options() declared the option.
 function common_platforms()
 	local option = _OPTIONS["architecture"]
 
@@ -94,17 +93,16 @@ function common_platforms()
 	return platforms
 end
 
--- Entirely a question of the toolset: one ending _xp exists for no other reason, and
--- cmake\j-common.cmake sets SUPPORT_WINXP the same way. A function rather than a pattern match
--- repeated in each place, because several decisions hang off it - TLS guards, SSE2, which
--- SpiderMonkey release still runs.
+-- Entirely a question of the toolset: one ending _xp exists for no other reason (cmake\j-common.cmake
+-- sets SUPPORT_WINXP the same way). A function, not a repeated pattern match, because several
+-- decisions hang off it - TLS guards, SSE2, which SpiderMonkey release still runs.
 function support_winxp()
 	return _OPTIONS["toolset"]:match("_xp$") ~= nil
 end
 
--- IT FOLLOWS THE TOOLSET, which is the decision already made: a toolset ending _xp is there to
--- run on XP, and the processors that run XP include ones with no SSE2. GTAC reaches the same
--- answer the long way, passing -DNO_ENHANCED_INSTRUCTIONS=ON by hand in three XP scripts.
+-- IT FOLLOWS THE TOOLSET: a toolset ending _xp runs on XP, and XP-capable processors include ones
+-- with no SSE2. A consumer reaches the same answer the long way, passing -DNO_ENHANCED_INSTRUCTIONS=ON by
+-- hand.
 function no_enhanced_instructions()
 	local option = _OPTIONS["no-enhanced-instructions"]
 
@@ -118,19 +116,18 @@ end
 function common_workspace()
 	language "C++"
 
-	-- v141_xp DOES support C++17: it is the ordinary v141 compiler with a different SDK and CRT
-	-- behind it, so it is the RUNTIME that targets an older Windows, not the language.
+	-- v141_xp DOES support C++17: the ordinary v141 compiler with a different SDK/CRT behind it, so it
+	-- is the RUNTIME that targets an older Windows, not the language.
 	cppdialect "C++17"
 
-	-- WITHOUT THIS THE LINE ABOVE IS HALF INVISIBLE. MSVC reports __cplusplus as 199711L whatever
-	-- /std: says - measured, 201703L with this switch and 199711L without - so a header asking
-	-- `#if __cplusplus >= 201703L` takes its C++98 path and nothing warns. SDL prompted it, and
-	-- reaches here through Galactic's SDL2_static.
+	-- WITHOUT THIS THE LINE ABOVE IS HALF INVISIBLE. MSVC reports __cplusplus as 199711L whatever /std:
+	-- says (measured: 201703L with this switch, 199711L without), so a header asking
+	-- `#if __cplusplus >= 201703L` takes its C++98 path and nothing warns. SDL prompted it, reaching
+	-- here through Galactic's SDL2_static.
 	buildoptions "/Zc:__cplusplus"
 
-	-- Defines UNICODE and _UNICODE. premake's default already, written out because it is
-	-- load-bearing - Galactic's headers do not compile without it - and because CMake defaults to
-	-- MBCS and has to be told.
+	-- Defines UNICODE and _UNICODE. premake's default already, written out because it is load-bearing
+	-- (Galactic's headers do not compile without it) and because CMake defaults to MBCS and must be told.
 	characterset "Unicode"
 
 	-- One file you can hand someone, with nothing to install alongside it.
@@ -146,9 +143,9 @@ function common_workspace()
 	-- Both configurations: a release binary with no pdb is one you cannot symbolise a crash from.
 	symbols "On"
 
-	-- NOMINMAX stops windows.h defining min and max as macros. PSAPI_VERSION=1 keeps psapi calls
-	-- out of Kernel32's K32 exports, which are Windows 7 and later and would fail the process at
-	-- LOAD on anything older. The rest silence deprecations for calls used deliberately.
+	-- NOMINMAX stops windows.h defining min/max as macros. PSAPI_VERSION=1 keeps psapi calls out of
+	-- Kernel32's K32 exports (Windows 7+, which would fail the process at LOAD on anything older). The
+	-- rest silence deprecations for calls used deliberately.
 	defines {
 		"WIN32",
 		"_WINDOWS",
@@ -160,16 +157,15 @@ function common_workspace()
 		"_WINSOCK_DEPRECATED_NO_WARNINGS"
 	}
 
-	-- Workspace scope, so these are searched BEFORE anything a project links: the linker takes the
-	-- first definition it finds, and a static library defining a Windows API name wins if it comes
-	-- first - SpiderMonkey's own HeapAlloc is what bit GTAC. Unused entries cost nothing.
+	-- Workspace scope, searched BEFORE anything a project links: the linker takes the first
+	-- definition found, so a static lib defining a Windows API name wins if first - SpiderMonkey's
+	-- own HeapAlloc bit a consumer once. Unused entries cost nothing.
 	--
-	-- EXCEPT ON A STATIC LIBRARY, WHICH DOES NOT LINK AT ALL. premake puts a project's links in
-	-- <Lib><AdditionalDependencies> for a StaticLib, and lib.exe does not resolve imports - it
-	-- MERGES each named library into the archive. The result is an archive carrying a copy of
-	-- every Windows import library (IV-Tools' was 39MB), and a LNK4006 for the duplicate
-	-- __NULL_IMPORT_DESCRIPTOR each one after the first brings with it. Nothing wants either:
-	-- whatever eventually links the archive names these itself, from this same list.
+	-- EXCEPT ON A STATICLIB, WHICH DOES NOT LINK: premake routes links to <Lib><AdditionalDependencies>,
+	-- and lib.exe MERGES each named library into the archive rather than resolving imports. Result:
+	-- an archive carrying a copy of every Windows import lib (39MB in one real case) plus a LNK4006 for
+	-- the duplicate __NULL_IMPORT_DESCRIPTOR each one after the first brings. Whatever eventually links
+	-- the archive names these itself, from this same list.
 	filter { "not kind:StaticLib" }
 		links {
 			"kernel32",
@@ -216,16 +212,14 @@ function common_workspace()
 		optimize "Off"
 		runtime "Debug"
 
-	-- THE FOUR BUILDS ARE NAMED SO THEY CAN SIT IN ONE DIRECTORY: _d, _x64, _d_x64, and nothing at
-	-- all for the 32-bit release that ships. The filters overlap deliberately - targetsuffix is a
-	-- single value, so the later, more specific match replaces the one above rather than adding to
-	-- it. Filtering on `architecture` keeps it independent of what a repository calls its
-	-- platforms.
+	-- THE FOUR BUILDS ARE NAMED SO THEY CAN SIT IN ONE DIRECTORY: _d, _x64, _d_x64, and nothing for
+	-- the 32-bit release that ships. Filters overlap deliberately - targetsuffix is a single value,
+	-- so the later, more specific match replaces the one above. Filtering on `architecture` keeps it
+	-- independent of what a repo calls its platforms.
 	--
-	-- ONLY WHAT RUNS IS RENAMED. Nothing loads a static library by name at run time, so a
-	-- StaticLib keeps the plain name in every configuration - which is precisely why
-	-- common_project() gives it a directory of its own, one per configuration. Left in a shared
-	-- Bin\ the second build would silently overwrite the first.
+	-- ONLY WHAT RUNS IS RENAMED. Nothing loads a static lib by name at run time, so a StaticLib keeps
+	-- the plain name in every configuration - which is why common_project() gives it its own directory
+	-- per configuration; in a shared Bin\ the second build would silently overwrite the first.
 	filter { "configurations:Debug", "not kind:StaticLib" }
 		targetsuffix "_d"
 
@@ -248,53 +242,43 @@ function common_workspace()
 		targetsuffix "_arm64"
 
 	-- AND A DLL'S IMPORT LIBRARY KEEPS THE PLAIN NAME: Foo_d.dll ships with Foo.lib, so whatever
-	-- links against it writes one name whichever configuration it is built for - exactly how the
-	-- dependency tree is arranged. `implibsuffix ""` does it; `implibname` does NOT, because
-	-- premake appends targetsuffix to that as well.
+	-- links it writes one name whichever configuration built it - as the dependency tree is arranged.
+	-- `implibsuffix ""` does it; `implibname` does NOT (premake appends targetsuffix to that too).
 	filter { "kind:SharedLib" }
 		implibsuffix ""
 
-	-- "NOT DEBUG" RATHER THAN "RELEASE", because a repository may have more than two
-	-- configurations and this file is copied into one. GTAC's third, Public Release, would under
-	-- `configurations:Release` get no optimisation, no NDEBUG and the debug runtime - silently,
-	-- since nothing fails; it just builds a slow binary against the wrong CRT.
+	-- "NOT DEBUG" RATHER THAN "RELEASE", because a repo may have more than two configurations and
+	-- this file is copied into one. a third config like Public Release would under `configurations:Release`
+	-- silently get no optimisation, no NDEBUG and the debug runtime - a slow binary against the wrong CRT.
 	filter { "not configurations:Debug" }
 		defines { "NDEBUG" }
 		optimize "Size"
 		runtime "Release"
 
-		-- /Ob2. EXPLICIT RATHER THAN A CHANGE: premake emits no /Ob of its own and /O1 already
-		-- implies /Ob2 - measured, `/O1 /Oi /Oy-` without this line and `/O1 /Ob2 /Oi /Oy-` with
-		-- it. Written out because cmake\j-common.cmake spells the pair out, where it IS load
-		-- bearing: CMake's MinSizeRel flags pass /Ob1 and would otherwise win.
+		-- /Ob2. EXPLICIT, not a change: premake emits no /Ob and /O1 already implies /Ob2 (measured:
+		-- `/O1 /Oi /Oy-` without, `/O1 /Ob2 /Oi /Oy-` with). Written out because cmake\j-common.cmake
+		-- spells it, where it IS load-bearing - CMake's MinSizeRel passes /Ob1 and would otherwise win.
 		inlining "Auto"
 
-		-- /GL and /LTCG: code generation deferred to link time so the optimiser can work ACROSS
-		-- translation units. Not free - the link is slower and cannot be incremental - which is
-		-- why it is in the Release filter only.
-		--
-		-- THE LINK ALREADY USED IT WITHOUT ASKING: the dependency tree is built with /GL, so the
-		-- linker reports "module compiled with /GL found; restarting link with /LTCG" and links
-		-- twice. Asking up front is what stops the restart.
-		--
-		-- Supersedes the older flags { "LinkTimeOptimization" } plus /LTCG by hand; this emits
-		-- both <WholeProgramOptimization> and <LinkTimeCodeGeneration>.
+		-- /GL and /LTCG: codegen deferred to link time so the optimiser works ACROSS translation units.
+		-- Not free (slower, non-incremental link), so Release-only. The link already used it without
+		-- asking - the dependency tree is built with /GL, so the linker reports "module compiled with
+		-- /GL found; restarting link with /LTCG" and links twice; asking up front stops the restart.
+		-- Supersedes the old flags { "LinkTimeOptimization" } + hand /LTCG; emits both
+		-- <WholeProgramOptimization> and <LinkTimeCodeGeneration>.
 		linktimeoptimization "On"
 
-	-- INCREMENTAL LINKING IS ALREADY RIGHT: premake defaults it true in Debug and false in
-	-- Release, from the optimisation level rather than from LTO. An old
-	-- `removeflags { "NoIncrementalLink" }` was reaching for that, and premake5 deprecates the
-	-- flag it removes.
+	-- INCREMENTAL LINKING IS ALREADY RIGHT: premake defaults it true in Debug, false in Release,
+	-- from the optimisation level not LTO. An old `removeflags { "NoIncrementalLink" }` reached for
+	-- that, and premake5 deprecates the flag it removes.
 
 	filter {}
 
 	-- NO ENHANCED INSTRUCTIONS: plain x86, 32-bit only - /arch:IA32 does not exist on x64, where
-	-- SSE2 is part of the architecture.
-	--
-	-- Two reasons to want it. A Pentium III or Athlon XP has no SSE2 and faults on a binary built
-	-- without this, however carefully the rest targets XP. And it changes HOW FLOATING POINT IS
-	-- EVALUATED: x87 keeps intermediates at 80 bits and rounds on store, where SSE2 rounds every
-	-- step to the declared width - which a byte-for-byte comparison against an older build needs.
+	-- SSE2 is part of the architecture. Two reasons: a Pentium III / Athlon XP has no SSE2 and faults
+	-- on a binary built without this however carefully the rest targets XP; and it changes HOW FLOATING
+	-- POINT IS EVALUATED - x87 keeps intermediates at 80 bits and rounds on store, SSE2 rounds every
+	-- step to the declared width, which a byte-for-byte comparison against an older build needs.
 	if no_enhanced_instructions() then
 		filter { "architecture:x86" }
 			buildoptions { "/arch:IA32" }
@@ -302,15 +286,14 @@ function common_workspace()
 		filter {}
 	end
 
-	-- MAGIC STATICS USE A TLS GUARD, AND TLS IS THE XP TRAP. A function-local static from VS2015
-	-- on gets a thread-safe init guard built on thread-local storage, and a DLL using static TLS
-	-- fails to load on XP when something brings it in with LoadLibrary - the loader does not
-	-- extend the TLS directory for a module loaded after process start. Executables are
-	-- unaffected, so this goes on everything that is not one.
+	-- MAGIC STATICS USE A TLS GUARD, AND TLS IS THE XP TRAP. A function-local static (VS2015+) gets a
+	-- thread-safe init guard built on TLS, and a DLL using static TLS fails to load on XP when brought
+	-- in with LoadLibrary - the loader does not extend the TLS directory for a module loaded after
+	-- process start. Executables are unaffected, so this goes on everything that is not one.
 	--
-	-- PREVENTIVE rather than a fix: ddraw.dll has an empty Thread Storage Directory today and both
-	-- hosts import it statically. It is one function-local static away from not being, and the
-	-- cost of finding out on XP is a DLL that will not load.
+	-- PREVENTIVE, not a fix: ddraw.dll has an empty Thread Storage Directory today and both hosts
+	-- import it statically - one function-local static away from not being, and the cost of finding
+	-- out on XP is a DLL that will not load.
 	if support_winxp() then
 		filter { "not kind:ConsoleApp", "not kind:WindowedApp" }
 			buildoptions { "/Zc:threadSafeInit-" }
@@ -323,20 +306,17 @@ function common_workspace()
 	toolset (_OPTIONS["toolset"])
 end
 
--- WHICH FLAVOUR OF AN INSTALLED TREE TO LINK AGAINST. Every tree is built twice, Debug and
--- Release, so a repository with a third configuration wants the Release one.
---
--- $(Configuration) cannot say that: it expands to the configuration's NAME, so GTAC's "Public
--- Release" would look for a Lib\Public Release that was never built. This token is evaluated per
--- configuration at generation time and writes the literal Debug or Release into each.
+-- WHICH FLAVOUR OF AN INSTALLED TREE TO LINK AGAINST. Every tree is built twice (Debug/Release), so
+-- a repo with a third configuration wants the Release one. $(Configuration) can't say that - it
+-- expands to the config NAME, so a "Public Release" config would look for a Lib\Public Release never
+-- built. This token is evaluated per config at generation time, writing the literal Debug or Release.
 DEPENDENCY_CONFIG = "%{cfg.buildcfg == 'Debug' and 'Debug' or 'Release'}"
 
--- WHERE A LINK-TIME ARTIFACT GOES - an import library or a static library, both of which are
--- CONSUMED by a later link rather than run. Laid out the way the installed dependency trees
--- already are, Lib\<arch>\<toolset>_static\<Debug|Release>, rather than a second shape to learn.
--- common_project() puts both there; see its own comments for why neither can sit in Bin\.
--- $(SolutionDir).. is the REPO ROOT: the solution is generated into .jbuild\ (the gitignored build
--- output), one level down, but Lib\ is a PRODUCT downstream trees link against and belongs at the root.
+-- WHERE A LINK-TIME ARTIFACT GOES - import lib or static lib, both CONSUMED by a later link, not run.
+-- Laid out as the installed dependency trees are, Lib\<arch>\<toolset>_static\<Debug|Release>, not a
+-- second shape to learn. common_project() puts both there; see there for why neither can sit in Bin\.
+-- $(SolutionDir).. is the REPO ROOT: the solution is generated into .jbuild\ (gitignored build output)
+-- one level down, but Lib\ is a PRODUCT downstream trees link against and belongs at the root.
 LINK_LIBRARIES = "$(SolutionDir)..\\Lib\\$(PlatformTarget)\\$(PlatformToolset)_static\\" .. DEPENDENCY_CONFIG
 
 -- The same four names targetsuffix gives our own binaries, because the dependency tree is built
@@ -352,12 +332,11 @@ local RUNTIME_BUILDS = {
 --
 --     copy_dependency(DEPENDENCIES, "SDL2")
 --
--- `dir` is the Lib directory WITHOUT the configuration - this adds Debug or Release itself,
--- because which one to take and what the file is called are the same decision. symbols = false
--- for a dependency shipping no .pdb; copying a missing file is a build error, not a skip.
+-- `dir` is the Lib directory WITHOUT the configuration - this adds Debug or Release itself. symbols
+-- = false for a dependency shipping no .pdb; copying a missing file is a build error, not a skip.
 --
--- ONE project per output directory: two copying the same file to the same place is a failure, not
--- a wasted copy, because MSBuild runs projects in parallel under /m and one finds it locked.
+-- ONE project per output directory: two copying the same file to the same place is a failure, not a
+-- wasted copy, because MSBuild runs projects in parallel under /m and one finds it locked.
 function copy_dependency(dir, name, symbols)
 	if symbols == nil then
 		symbols = true
@@ -395,40 +374,31 @@ function copy_single_dependency(dir, name)
 end
 
 function common_project()
-	-- Project, platform, toolset, configuration - the dependency tree's shape, and the toolset
-	-- segment keeps v141_xp and v143 objects from mixing.
+	-- Project, platform, toolset, configuration - the dependency tree's shape; the toolset segment
+	-- keeps v141_xp and v143 objects from mixing.
 	--
-	-- "!" opts out of premake making the path unique; without it premake appends platform,
-	-- configuration and project again as literals, MSBuild macros being opaque to its comparison.
-	-- That also removes its safety net, so every macro here must resolve: $(ProjectName), never
-	-- $(ShortProjectName), which is empty under v141_xp. See CLAUDE.md.
+	-- "!" opts out of premake uniquifying the path; without it premake re-appends platform, config
+	-- and project as literals (MSBuild macros being opaque to its comparison). That also removes its
+	-- safety net, so every macro here must resolve: $(ProjectName), never $(ShortProjectName) which is
+	-- empty under v141_xp. See CLAUDE.md.
 	objdir "!$(SolutionDir)obj\\$(ProjectName)\\$(Platform)\\$(PlatformToolset)\\$(Configuration)"
 
-	-- AN IMPORT LIBRARY DOES NOT GO BESIDE THE BINARY, it goes in Lib\ laid out the way the
-	-- installed dependency tree is: Lib\<arch>\<toolset>_static\<Debug|Release>.
-	--
-	-- Bin\ is deliberately shared by every configuration - Foo_d.exe sits next to Foo.exe - and
-	-- that is fine for things whose names differ. An import library's does NOT: implibsuffix ""
-	-- above gives both configurations a plain Foo.lib, so in one directory the second build
-	-- overwrites the first and a Release binary silently links the Debug import library, naming
-	-- Foo_d.dll in its import table. That happened here, and nothing failed until the import
-	-- table was read.
-	--
-	-- The dependency tree never had the problem because it splits per configuration. This follows
-	-- it rather than inventing a second layout, and DEPENDENCY_CONFIG is used rather than
-	-- $(Configuration) for the same reason it is used there - a repository is allowed a third
-	-- configuration, and it links the Release flavour.
+	-- AN IMPORT LIBRARY DOES NOT GO BESIDE THE BINARY; it goes in Lib\ as the installed dependency
+	-- tree is: Lib\<arch>\<toolset>_static\<Debug|Release>. Bin\ is deliberately shared by every
+	-- configuration (Foo_d.exe beside Foo.exe) - fine for things whose names differ. An import lib's
+	-- does NOT: implibsuffix "" above gives both configs a plain Foo.lib, so in one directory the
+	-- second build overwrites the first and a Release binary silently links the Debug import lib,
+	-- naming Foo_d.dll in its import table. That happened here; nothing failed until the import table
+	-- was read. The dependency tree avoids it by splitting per config; this follows that, and uses
+	-- DEPENDENCY_CONFIG not $(Configuration) for the same reason - a third config links Release.
 	implibdir (LINK_LIBRARIES)
 
-	-- AND A STATIC LIBRARY IS THE SAME PROBLEM, for the same reason: targetsuffix above renames
-	-- only what RUNS, so Foo.lib is Foo.lib in both configurations. A repository's targetdir is
-	-- its own business - Bin\ is shared by every configuration on purpose - but an archive cannot
-	-- live there, because the second build overwrites the first and MSBuild will then happily
-	-- link a Release executable against the Debug archive it finds.
-	--
-	-- Not hypothetical: IV-Tools hit it within minutes of having a StaticLib, and GTAC had already
-	-- worked around it in its own premake5.lua. Two repositories reaching the same rule separately
-	-- is what moved it here. A repository wanting somewhere else says so after common_project().
+	-- AND A STATIC LIBRARY IS THE SAME PROBLEM: targetsuffix above renames only what RUNS, so Foo.lib
+	-- is Foo.lib in both configs. A repo's targetdir is its own business (Bin\ shared on purpose), but
+	-- an archive cannot live there - the second build overwrites the first and MSBuild then links a
+	-- Release executable against the Debug archive it finds. Not hypothetical: a consumer hit it within
+	-- minutes of having a StaticLib, and another had already worked around it by hand.
+	-- A repo wanting somewhere else says so after common_project().
 	filter { "kind:StaticLib" }
 		targetdir (LINK_LIBRARIES)
 

@@ -2,7 +2,7 @@
 
 Shared build boilerplate, consumed as a git submodule so each repository *names what it builds*
 instead of copy-pasting the build logic. One source of truth across Galactic, GalacticSamples,
-GalacticTools, GTAC and friends - the same role the CMake-Modules submodule already plays for CMake.
+GalacticTools and friends - the same role the CMake-Modules submodule already plays for CMake.
 
 ## premake/
 

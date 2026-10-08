@@ -3,7 +3,7 @@
 --     include "Dependencies.lua"
 --     dependencies_workspace()   -- after common_workspace(), BEFORE galactic_workspace()
 --
--- Port of GTAC's cmake\j-dependencies.cmake. Separate from Common.lua because every line here
+-- Port of the cmake j-dependencies.cmake. Separate from Common.lua because every line here
 -- assumes %jdependencies_home% exists, and Common.lua has to work without it.
 --
 -- ORDER MATTERS - search paths are tried in append order - and Galactic.lua needs this file: it
@@ -13,15 +13,14 @@
 DEPENDENCIES = "$(jdependencies_home)\\Lib\\$(PlatformTarget)\\$(PlatformToolset)_static"
 
 function dependencies_workspace()
-	-- The four STATIC defines each tell one library's headers to stop decorating their API with
-	-- __declspec(dllimport). Get one wrong and the symbol is looked for as __imp_<name>. They are
-	-- here rather than in Common.lua because each names a library in THIS tree.
+	-- The STATIC defines each tell one library's headers to stop decorating their API with
+	-- __declspec(dllimport). Get one wrong and the symbol is looked for as __imp_<name>. Here rather
+	-- than Common.lua because each names a library in THIS tree.
 	--
-	-- SDL_MAIN_HANDLED is not linkage: it stops SDL_main.h doing `#define main SDL_main` to
-	-- install its own WinMain. Nothing here wants that - every executable declares wmain or
-	-- wWinMain, which SDL never rewrites - but saying it up front means the entry point does not
-	-- depend on how it is spelled. Found when /Yu discarded the define RendererProbe carried
-	-- itself and the link failed on an unresolved _main.
+	-- SDL_MAIN_HANDLED is not linkage: it stops SDL_main.h doing `#define main SDL_main` to install its
+	-- own WinMain. Nothing here wants that (every executable declares wmain/wWinMain, which SDL never
+	-- rewrites), but saying it up front means the entry point doesn't depend on how it is spelled. Found
+	-- when /Yu discarded the define RendererProbe carried itself and the link failed on unresolved _main.
 	defines {
 		"CURL_STATICLIB",
 		"SDL2_STATIC",
@@ -30,11 +29,11 @@ function dependencies_workspace()
 		"RMLUI_STATIC_LIB"
 	}
 
-	-- The DirectX SDK's import libraries, which are NOT in the Windows SDK - dxerr.lib exists
-	-- nowhere else, and is the whole reason $(dxsdk_dir) is searched.
+	-- The DirectX SDK's import libraries, NOT in the Windows SDK - dxerr.lib exists nowhere else, and
+	-- is the whole reason $(dxsdk_dir) is searched.
 	--
-	-- Not on a static library, for the reason Common.lua's own link list spells out: lib.exe
-	-- merges what it is handed into the archive instead of resolving against it.
+	-- Not on a static library, for the reason Common.lua's link list spells out: lib.exe merges what it
+	-- is handed into the archive instead of resolving against it.
 	filter { "not kind:StaticLib" }
 		links {
 			"dxerr",

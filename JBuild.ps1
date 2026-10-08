@@ -5,18 +5,16 @@
 
 .DESCRIPTION
     The build is described by the CONSUMER's premake5.lua at its repo root; this script only maps friendly
-    parameters to premake options and runs the committed premake5.exe (in jbuild\premake\), then locates
-    the generated solution and hands it to MSBuild. It is generic: the solution NAME and location come
-    from the consumer's premake `workspace` (location(rootPath)), never from this script - so the
-    generated *.sln is DISCOVERED, not hardcoded.
-
-    Generation alone is just `premake5.exe vs2022` run in the consumer's premake\ dir; this wrapper adds
-    the parameter mapping and the optional non-interactive build (CI / no Visual Studio open).
+    parameters to premake options, runs the committed premake5.exe (jbuild\premake\), then locates the
+    generated solution and hands it to MSBuild. Generic: the solution NAME and location come from the
+    consumer's premake `workspace` (location(rootPath)), never this script - the *.sln is DISCOVERED, not
+    hardcoded. Generation alone is just `premake5.exe vs2022` in the consumer's premake\ dir; this wrapper
+    adds the parameter mapping and the optional non-interactive build (CI / no Visual Studio open).
 
 .PARAMETER Root
-    The consumer repo root - where premake5.lua lives and where its `location(rootPath)` writes
-    the .sln. Defaults to this script's parent (correct when jbuild is a submodule at <consumer>\jbuild, with
-    this driver at the jbuild root); pass it explicitly for a sibling checkout.
+    The consumer repo root - where premake5.lua lives and its `location(rootPath)` writes the .sln.
+    Defaults to this script's parent (correct when jbuild is a submodule at <consumer>\jbuild, this driver
+    at the jbuild root); pass it explicitly for a sibling checkout.
 
 .PARAMETER Build
     Also build the generated solution with MSBuild after generating.
@@ -79,14 +77,14 @@ param(
 $ErrorActionPreference = 'Stop'
 
 # Colorized output in the style of the makefiles' CMake-like tags (make/common.mk: green [CXX], cyan [AR],
-# bold-blue [LINK]). Dropped when NO_COLOR is set or the output is redirected (CI logs / dumb terminals).
+# bold-blue [LINK]). Dropped when NO_COLOR is set or output is redirected (CI logs / dumb terminals).
 $script:Color = (-not $env:NO_COLOR) -and (-not [Console]::IsOutputRedirected)
 function Paint([string]$text, [string]$code) { if ($script:Color) { "$([char]27)[${code}m$text$([char]27)[0m" } else { $text } }
 function Tag([string]$name, [string]$code)   { Paint "[$name]" $code }
 
 # This driver is at the jbuild root; premake5.exe and the shared .lua modules are in jbuild\premake\. The
-# consumer's own premake5.lua is at its repo root ($Root). Checked in the premake branch below (after the
-# build-system dispatch), so the cmake branch needs none of it.
+# consumer's own premake5.lua is at its repo root ($Root). Checked in the premake branch below, so the
+# cmake branch needs none of it.
 $jbuildPremake = Join-Path $PSScriptRoot 'premake'
 $premake = Join-Path $jbuildPremake 'premake5.exe'
 $consumerPremake = $Root
@@ -109,8 +107,8 @@ function Get-OptionArgs {
 }
 
 # Print what "generate now" commits to - resolved by premake itself (consumer premake5.lua defaults
-# included) via the read-only jbuild-summary action. Silent if the consumer doesn't provide it (no
-# XP.lua) or premake can't run; the real generation surfaces any actual problem.
+# included) via the read-only jbuild-summary action. Silent if the consumer doesn't provide it (no XP.lua)
+# or premake can't run; the real generation surfaces any actual problem.
 function Show-Summary {
     $lines = @()
     Push-Location $consumerPremake
@@ -126,8 +124,8 @@ function Show-Summary {
 # ----- cmake path -----
 # Mirror the premake prompts where cmake supports them (Visual Studio, architecture, XP toolset, XP
 # support, SpiderMonkey, runtime), map them to one of jbuild's configure presets plus -D overrides,
-# configure, and optionally build. The premake-only knobs (--crt dynamic modes, the --target-os ladder,
-# multi-arch) are not offered - cmake does one architecture per configure and has no equivalent.
+# configure, optionally build. The premake-only knobs (--crt dynamic modes, --target-os ladder, multi-arch)
+# are not offered - cmake does one architecture per configure and has no equivalent.
 function Invoke-Cmake {
     $cmake = Get-Command cmake -EA SilentlyContinue
     if (-not $cmake) { Write-Error 'cmake is not on PATH.'; exit 1 }
@@ -202,9 +200,9 @@ function Invoke-Cmake {
         elseif ($SupportWinXP -eq 'Off') { $defs += '-DSUPPORT_WINXP=OFF' }
     }
 
-    # Runtime - msvcrt.dll via VC-LTL5, or the static UCRT. Enter keeps the preset's own default (the non-XP
-    # presets default to msvcrt, the _xp ones to static), so static must pass -DUSE_MSVCRT=OFF explicitly to
-    # override it. cmake has no dynamic / app-local UCRT equivalent.
+    # Runtime - msvcrt.dll via VC-LTL5, or the static UCRT. Enter keeps the preset's default (non-XP presets
+    # default to msvcrt, _xp ones to static), so static must pass -DUSE_MSVCRT=OFF explicitly to override it.
+    # cmake has no dynamic / app-local UCRT equivalent.
     if ($interactive) {
         $p = Read-Host "`nCRT?  [Enter] the preset default / 1 msvcrt (VC-LTL5) / 2 static UCRT"
         if ($p -eq '1') { $defs += '-DUSE_MSVCRT=ON' } elseif ($p -eq '2') { $defs += '-DUSE_MSVCRT=OFF' }
@@ -299,16 +297,16 @@ if (-not $VisualStudio) {
 
         # --- optional extra options ---
         # Only the knobs the consumer's premake actually declares are offered, so we never pass an unknown
-        # flag (premake errors on one). Discover declared options by scanning its premake tree for newoption
-        # triggers. Each prompt defaults to Enter = keep premake5.lua's own default.
+        # flag (premake errors on one). Declared options are discovered by scanning its premake tree for
+        # newoption triggers. Each prompt defaults to Enter = keep premake5.lua's own default.
         Show-Summary
         Write-Host ''
         Write-Host "Press 'o' to set options, or Enter to generate now " -NoNewline
         $gate = [Console]::ReadKey($true); Write-Host ''
         if ($gate.KeyChar -eq 'o' -or $gate.KeyChar -eq 'O') {
-            # Scan the consumer's premake dir AND jbuild's own premake dir - the shared jbuild modules
-            # (XP.lua / Common.lua, which declare support-winxp / use-msvcrt / crt / ...) live there, so
-            # options defined in the jbuild submodule are still discovered.
+            # Scan the consumer's premake dir AND jbuild's own - the shared jbuild modules (XP.lua /
+            # Common.lua, declaring support-winxp / use-msvcrt / crt / ...) live there, so options defined
+            # in the jbuild submodule are still discovered.
             $declared = @(
                 (@(Get-ChildItem $Root -Filter *.lua -EA SilentlyContinue) +
                  @(Get-ChildItem $jbuildPremake -Filter *.lua -EA SilentlyContinue)) |
@@ -444,8 +442,8 @@ $slnText = Get-Content -LiteralPath $solution.FullName -Raw
 $slnPairs = [regex]::Matches($slnText, '(?m)^\s*(\w+)\|(\w+)\s*=\s*\1\|\2\s*$')
 $slnConfigs   = @($slnPairs | ForEach-Object { $_.Groups[1].Value }) | Sort-Object -Unique
 # Build-menu order, NOT alphabetical: x86 (Win32) is the standing default (index 0), then x64, then the ARM
-# platforms - so a solution that happens to contain ARM doesn't default to building the dead 32-bit ARM.
-# Anything a consumer names outside this list sorts alphabetically after the known four.
+# platforms - so a solution that contains ARM doesn't default to building the dead 32-bit ARM. Anything a
+# consumer names outside this list sorts alphabetically after the known four.
 $platOrder = @('Win32', 'x64', 'ARM', 'ARM64')
 $slnPlatforms = @($slnPairs | ForEach-Object { $_.Groups[2].Value } | Sort-Object -Unique |
     Sort-Object @{ Expression = { $i = $platOrder.IndexOf($_); if ($i -lt 0) { 99 } else { $i } } }, @{ Expression = { $_ } })

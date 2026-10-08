@@ -4,10 +4,9 @@
 --     warnings_options()     -- before the workspace, beside common_options()
 --     warnings_workspace()   -- after common_workspace()
 --
--- Port of GTAC's cmake\j-warnings.cmake, keeping its key property: the LEVEL is only touched
--- when asked for, so a repository that says nothing keeps its own - this one is deliberately at
--- 3. The suppressions are unconditional, as they are there; they cost nothing when the warning
--- cannot fire.
+-- Port of the cmake j-warnings.cmake, keeping its key property: the LEVEL is only touched when
+-- asked for, so a repo that says nothing keeps its own (this one is deliberately at 3). The
+-- suppressions are unconditional, as there; they cost nothing when the warning cannot fire.
 
 function warnings_options()
 	-- The counterpart of -DCUSTOM_MSVC_WARNING_LEVEL=4. Unset, nothing here changes the level.
@@ -59,12 +58,12 @@ function warnings_workspace()
 	-- cmake\j-common.cmake rather than j-warnings.cmake, so a side-by-side comparison misses it.
 	linkoptions { "/ignore:4221" }
 
-	-- NOTHING HERE FOR LNK4006, deliberately. It fired on every static library for a while, from
-	-- the librarian rather than the linker: lib.exe MERGES what it is handed instead of resolving
-	-- against it, so the workspace's import libraries were being copied into the archive, each
-	-- bringing a duplicate __NULL_IMPORT_DESCRIPTOR. Silencing it here was the wrong fix and was
-	-- removed again - Common.lua stopped handing a StaticLib those links at all, which is the
-	-- cause. On an executable LNK4006 is a real symbol defined twice and should still be heard.
+	-- NOTHING HERE FOR LNK4006, deliberately. It fired on every static library for a while, from the
+	-- librarian not the linker: lib.exe MERGES what it is handed instead of resolving against it, so the
+	-- workspace's import libraries were copied into the archive, each bringing a duplicate
+	-- __NULL_IMPORT_DESCRIPTOR. Silencing it here was the wrong fix and was removed - Common.lua stopped
+	-- handing a StaticLib those links at all, which is the cause. On an executable LNK4006 is a real
+	-- symbol defined twice and should still be heard.
 end
 
 -- premake routes linkoptions to the right tool itself, so a static library gets these in <Lib>,

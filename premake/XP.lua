@@ -4,62 +4,61 @@
 --     xp_options()         -- before the workspace, beside common_options()
 --     xp_workspace()       -- after common_workspace()
 --
--- Port of Galactic's cmake\j-xp.cmake. v141_xp was long the only way to reach XP, so "supports
--- XP" and "is the XP toolset" were one statement. Two pieces separate them:
+-- Port of Galactic's cmake\j-xp.cmake. v141_xp was long the only way to reach XP, so "supports XP"
+-- and "is the XP toolset" were one statement. Two pieces separate them:
 --
---   VC-LTL5     a CRT binding to Windows' own msvcrt.dll, which predates fiber local storage and
---               so never calls FlsAlloc, rather than to VCRUNTIME140 and the UCRT
---   YY-Thunks   an object DEFINING the __imp__ symbols for Win32 APIs XP lacks, so a call
---               compiled as `call [__imp__AcquireSRWLockExclusive@4]` binds to it, not kernel32
+--   VC-LTL5     a CRT binding to Windows' own msvcrt.dll (predates fiber local storage, never calls
+--               FlsAlloc) rather than to VCRUNTIME140 and the UCRT
+--   YY-Thunks   an object DEFINING the __imp__ symbols for Win32 APIs XP lacks, so a call compiled as
+--               `call [__imp__AcquireSRWLockExclusive@4]` binds to it, not kernel32
 --
--- Hence two questions rather than one, because the consumers want different answers:
---
+-- Hence two questions, because consumers want different answers:
 --   support_winxp()      what the OUTPUT must run on
 --   using_xp_toolset()   what is BUILDING it - v141_xp needs none of this file
 --
--- THE TWO PIECES ARE INDEPENDENT, measured in Galactic. The stock v143 CRT calls FlsAlloc from
--- its own startup, so XP looks to need the msvcrt one - but an object on the link line is
--- included unconditionally where a library member is pulled only to resolve something undefined,
--- so kernel32's copies are never reached and the CRT's own references bind to the thunks too.
--- --support-winxp=on with --use-msvcrt=off gives subsystem 5.01 and no post-XP imports.
+-- THE TWO PIECES ARE INDEPENDENT (measured in Galactic). The stock v143 CRT calls FlsAlloc from its
+-- own startup, so XP looks to need the msvcrt one - but an object on the link line is included
+-- unconditionally (a library member is pulled only to resolve something undefined), so kernel32's
+-- copies are never reached and the CRT's own references bind to the thunks too. --support-winxp=on
+-- with --use-msvcrt=off gives subsystem 5.01 and no post-XP imports.
 --
--- BOTH PATHS HAVE RUN ON 5.1.2600: the msvcrt one through this repository's ThunksTest, the
--- thunks-only one through Galactic's gpakviewer on a stock static UCRT. So --use-msvcrt really
--- is the size and deployment choice it claims to be, not a hedge against the UCRT misbehaving.
+-- BOTH PATHS HAVE RUN ON 5.1.2600: the msvcrt one via this repo's ThunksTest, the thunks-only one via
+-- Galactic's gpakviewer on a stock static UCRT. So --use-msvcrt really is the size/deployment choice
+-- it claims to be, not a hedge against the UCRT misbehaving.
 
--- WHAT A REPOSITORY WANTS IS ITS OWN DECISION, so the defaults are passed in rather than fixed
--- here, exactly as common_options(defaultToolset) takes the toolset. Each is a string "on" or
--- "off", or left out for the file's own answer:
+-- WHAT A REPO WANTS IS ITS OWN DECISION, so defaults are passed in rather than fixed here, as
+-- common_options(defaultToolset) takes the toolset. Each is "on"/"off", or left out for the file's
+-- own answer:
 --
---     xp_options()                                      follow the toolset, no VC-LTL
---     xp_options { supportWinXP = "on", useMsvcrt = "on" }    XP and msvcrt.dll whatever builds it
+--     xp_options()                                           follow the toolset, no VC-LTL
+--     xp_options { supportWinXP = "on", useMsvcrt = "on" }   XP and msvcrt.dll whatever builds it
 --
 -- A default is only a default: --support-winxp=off on the command line still wins over one.
 
 -- This file's own directory, captured at include time (premake points _SCRIPT_DIR at each included file
--- while it runs), so the Windows 2000 post-link patcher under ../tools can be located relative to jbuild
+-- while it runs), so the Windows 2000 post-link patcher under ../tools is located relative to jbuild
 -- itself, whatever the consumer's working directory is.
 local XP_SCRIPT_DIR = _SCRIPT_DIR
 
 -- ===== TARGET OS (--target-os) =====
 -- An explicit --target-os supersedes the legacy support-winxp/toolset path and drives the subsystem
--- version, the YY-Thunks obj and the VC-LTL tier TOGETHER, so the three cannot drift apart. When
--- --target-os is absent, everything below falls back to the EXACT previous behavior - existing consumers
--- are byte-for-byte unaffected - and --target-os=winxp is identical to --support-winxp=on.
+-- version, the YY-Thunks obj and the VC-LTL tier TOGETHER, so the three cannot drift apart. Absent, all
+-- below falls back to the EXACT previous behavior (existing consumers byte-for-byte unaffected); and
+-- --target-os=winxp == --support-winxp=on.
 --
 -- EVERYTHING IS PER ARCH, because 64-bit Windows begins at XP x64 (NT 5.2 / Server 2003): a target older
 -- than XP has no 64-bit form, so its x86_64 column is XP x64's. Each arch carries:
---   sub       PE subsystem version (what the exe declares it needs); an explicit target always stamps it,
---             down for XP/2000 and up for 8/8.1/10/11. Distinct per OS, 10 and 11 alike at 10.00.
---   thunks    the YY-Thunks obj suffix (YY_Thunks_for_<suffix>.obj); nil = native there, so no thunks and
---             no subsystem lowering are needed (10/11). 8.1 reuses Win8 (YY ships no 8.1 obj).
---   vcltl     VC-LTL TargetPlatform, used only under --use-msvcrt; nil = msvcrt.dll is not available for
---             that arch. Win2000 x86 is nil: VC-LTL floors at XP and 2000's older msvcrt.dll (v6.10) lacks
---             exports the XP bindings assume. Win2000 x64 is XP x64's, which does have it.
---   xpEra     (per OS, not arch) true for the 2000/XP source flags Common.lua keys off support_winxp() for
---             (/arch:IA32 for pre-SSE2 CPUs, /Zc:threadSafeInit- for the XP loader's TLS bug); Vista+ none.
--- Windows 2000 is best-effort/unverified: YY-Thunks ships a Win2K obj, but the static UCRT's own floor is
--- XP, so the CRT may still reach for APIs 2000 lacks. XP is the first genuinely-proven rung.
+--   sub     PE subsystem version (what the exe declares it needs); an explicit target always stamps it,
+--           down for XP/2000, up for 8/8.1/10/11. Distinct per OS; 10 and 11 alike at 10.00.
+--   thunks  YY-Thunks obj suffix (YY_Thunks_for_<suffix>.obj); nil = native there, no thunks/subsystem
+--           lowering needed (10/11). 8.1 reuses Win8 (YY ships no 8.1 obj).
+--   vcltl   VC-LTL TargetPlatform, used only under --use-msvcrt; nil = no msvcrt.dll for that arch.
+--           Win2000 x86 nil: VC-LTL floors at XP and 2000's older msvcrt.dll (v6.10) lacks exports the
+--           XP bindings assume. Win2000 x64 is XP x64's, which does have it.
+--   xpEra   (per OS, not arch) true for the 2000/XP source flags Common.lua keys off support_winxp()
+--           (/arch:IA32 for pre-SSE2 CPUs, /Zc:threadSafeInit- for the XP loader's TLS bug); Vista+ none.
+-- Windows 2000 is best-effort/unverified: YY-Thunks ships a Win2K obj, but the static UCRT floors at XP,
+-- so the CRT may still reach for APIs 2000 lacks. XP is the first genuinely-proven rung.
 local TARGET_OS = {
 	win2000 = { order = 1, label = "Windows 2000", xpEra = true,
 		x86    = { sub = "5.00",  thunks = "Win2K", vcltl = nil           },   -- real 2000; its msvcrt too old for VC-LTL
@@ -124,11 +123,10 @@ function xp_options(defaults)
 		}
 	}
 
-	-- ITS OWN SWITCH, not something --support-winxp turns on quietly: it changes which CRT every
-	-- binary links. Worth having away from XP too - nothing to redistribute, and imports replace
-	-- the static CRT, a fairly fixed ~130 KB a binary. DEFAULTS TO "release" (the matching cmake presets
-	-- default to msvcrt too), so a consumer that wants the small no-redist CRT need not say so; pass
-	-- useMsvcrt = "off" to opt back out to the static UCRT.
+	-- ITS OWN SWITCH, not something --support-winxp turns on quietly: it changes which CRT every binary
+	-- links. Worth having away from XP too - nothing to redistribute, imports replace the static CRT
+	-- (~130 KB a binary). DEFAULTS TO "release" (matching cmake presets default to msvcrt too), so a
+	-- consumer wanting the small no-redist CRT need not say so; pass useMsvcrt = "off" for the static UCRT.
 	newoption {
 		trigger = "use-msvcrt",
 		value = "VALUE",
@@ -141,9 +139,9 @@ function xp_options(defaults)
 		}
 	}
 
-	-- The full CRT selector, superseding --use-msvcrt (which stays as the on/off/release alias above).
-	-- When set it decides the C runtime outright; left out, the legacy --use-msvcrt path is byte-identical
-	-- to before. See crt_mode()/xp_crt_workspace().
+	-- The full CRT selector, superseding --use-msvcrt (the on/off/release alias above). When set it
+	-- decides the C runtime outright; left out, the legacy --use-msvcrt path is byte-identical to before.
+	-- See crt_mode()/xp_crt_workspace().
 	newoption {
 		trigger = "crt",
 		value = "MODE",
@@ -157,10 +155,10 @@ function xp_options(defaults)
 		}
 	}
 
-	-- The Debug config's CRT, mirroring --crt. Debug DEFAULTS to the static (debug) UCRT whatever --crt is,
-	-- so leak detection and the debug heap keep working; set this to match --crt (or anything else) when a
-	-- use case wants it. Has NO premake default on purpose - the "static" default lives in crt_pair(), so it
-	-- only applies on the --crt path and never overrides the legacy --use-msvcrt mapping.
+	-- The Debug config's CRT, mirroring --crt. Debug DEFAULTS to the static (debug) UCRT whatever --crt
+	-- is, so leak detection / the debug heap keep working; set this to match --crt (or anything) when
+	-- wanted. NO premake default on purpose - the "static" default lives in crt_pair(), so it only
+	-- applies on the --crt path and never overrides the legacy --use-msvcrt mapping.
 	newoption {
 		trigger = "crt-debug",
 		value = "MODE",
@@ -173,10 +171,10 @@ function xp_options(defaults)
 		}
 	}
 
-	-- XP's loader never patches a LoadLibrary'd module's _tls_index, so its thread_local reads
-	-- garbage. Off because Common.lua already fixes that from the other end for everything that
-	-- is not an executable, with /Zc:threadSafeInit-. On for a DLL with real thread_local of its
-	-- own; note it takes an entry point that is not the CRT's.
+	-- XP's loader never patches a LoadLibrary'd module's _tls_index, so its thread_local reads garbage.
+	-- Off because Common.lua already fixes that from the other end for everything non-executable, with
+	-- /Zc:threadSafeInit-. On for a DLL with real thread_local of its own; note it takes an entry point
+	-- that is not the CRT's.
 	newoption {
 		trigger = "yy-thunks-tls",
 		value = "VALUE",
@@ -195,19 +193,18 @@ function using_xp_toolset()
 	return _OPTIONS["toolset"]:match("_xp$") ~= nil
 end
 
--- THE OUTPUT, and DELIBERATELY THE SAME GLOBAL Common.lua ALREADY DEFINES. Common.lua answers it
--- from the toolset, which was the whole truth until this file existed; several of its own
--- decisions hang off the answer and must follow the richer one:
+-- THE OUTPUT, and DELIBERATELY THE SAME GLOBAL Common.lua ALREADY DEFINES. Common.lua answers it from
+-- the toolset (the whole truth until this file existed); several of its decisions hang off the answer
+-- and must follow the richer one:
 --
---   /Zc:threadSafeInit-   a magic static's TLS guard breaks in a LoadLibrary'd DLL on XP
---                         WHATEVER BUILT IT, so this is the question it wants
---   /arch:IA32            the processors that run XP include ones with no SSE2 - again about
---                         where the binary lands, not about the compiler
+--   /Zc:threadSafeInit-   a magic static's TLS guard breaks in a LoadLibrary'd DLL on XP WHATEVER
+--                         BUILT IT, so this is the question it wants
+--   /arch:IA32            XP-capable processors include ones with no SSE2 - again about where the
+--                         binary lands, not the compiler
 --
--- Replacing it rather than adding a second name is what lets Common.lua stay byte-identical to
--- the copy in every other repository while still getting the right answer here. Lua resolves a
--- global at CALL time, so common_workspace() reaches this one as long as XP.lua was included
--- first - which the guard below insists on rather than leaving to chance.
+-- Replacing it rather than adding a second name lets Common.lua stay byte-identical to every other
+-- repo's copy while still getting the right answer here. Lua resolves a global at CALL time, so
+-- common_workspace() reaches this one as long as XP.lua was included first - which the guard below insists on.
 if support_winxp == nil then
 	error("XP.lua must be included after Common.lua - it takes over that file's support_winxp().")
 end
@@ -228,9 +225,9 @@ function support_winxp()
 	return using_xp_toolset()
 end
 
--- The target needs the downlevel treatment (a lowered subsystem + YY-Thunks) rather than the toolset's
--- own native output. For an explicit --target-os that is any OS still carrying a thunks obj (2000..8.1);
--- for the legacy path it stays support_winxp() (XP), unchanged. v141_xp answers for itself, so is excluded.
+-- The target needs the downlevel treatment (lowered subsystem + YY-Thunks) rather than the toolset's
+-- own native output. For explicit --target-os: any OS still carrying a thunks obj (2000..8.1); legacy
+-- path stays support_winxp() (XP), unchanged. v141_xp answers for itself, so is excluded.
 function needs_downlevel()
 	if using_xp_toolset() then
 		return false
@@ -244,12 +241,12 @@ function needs_downlevel()
 	return support_winxp()
 end
 
--- The CRT PER CONFIG, as (release_mode, debug_mode). --crt sets the release / non-Debug CRT, and Debug
--- DEFAULTS to "static" so a debug build keeps MSVC's debug heap and leak detection (_CrtDumpMemoryLeaks /
--- _CrtSetDbgFlag); --crt-debug overrides the Debug CRT. With no --crt, the legacy --use-msvcrt path is
+-- The CRT PER CONFIG, as (release_mode, debug_mode). --crt sets the release/non-Debug CRT; Debug
+-- DEFAULTS to "static" so a debug build keeps MSVC's debug heap and leak detection (_CrtDumpMemoryLeaks
+-- / _CrtSetDbgFlag); --crt-debug overrides the Debug CRT. With no --crt the legacy --use-msvcrt path is
 -- preserved exactly (on = msvcrt both, release = msvcrt/static split, off = static both). Each mode is
 -- "msvcrt", "static", "dynamic", "ucrt-local", or nil (no explicit choice - Common.lua's static UCRT
--- stands, which is the same as "static").
+-- stands, same as "static").
 local function crt_pair()
 	local rel, dbg
 
@@ -270,17 +267,17 @@ local function crt_pair()
 end
 
 function use_msvcrt()
-	-- True whenever VC-LTL's msvcrt.dll is the CRT in ANY config. msvcrt availability is PER ARCH (Windows
-	-- 2000 x86 has no VC-LTL tier, its msvcrt.dll being too old) and use_vc_ltl simply skips an arch with
-	-- no tier; the menu also doesn't offer msvcrt for a 2000 target. So nothing OS-specific belongs here.
+	-- True whenever VC-LTL's msvcrt.dll is the CRT in ANY config. msvcrt availability is PER ARCH (Win2000
+	-- x86 has no VC-LTL tier, its msvcrt.dll too old) and use_vc_ltl simply skips an arch with no tier;
+	-- the menu also doesn't offer msvcrt for a 2000 target. So nothing OS-specific belongs here.
 	local rel, dbg = crt_pair()
 	return rel == "msvcrt" or dbg == "msvcrt"
 end
 
 -- The config filter VC-LTL is limited to: nil (both configs msvcrt), "not configurations:Debug" (release
--- only), or "configurations:Debug" (debug only). "not Debug" covers EVERY non-Debug configuration - GTAC's
--- "Public Release" and RelWithDebInfo included - the same way Common.lua's DEPENDENCY_CONFIG and release
--- flags decide release-ness.
+-- only), or "configurations:Debug" (debug only). "not Debug" covers EVERY non-Debug config (a
+-- "Public Release", RelWithDebInfo included), as Common.lua's DEPENDENCY_CONFIG and release flags decide
+-- release-ness.
 function msvcrt_config_filter()
 	local rel, dbg = crt_pair()
 	local r, d = (rel == "msvcrt"), (dbg == "msvcrt")
@@ -290,33 +287,30 @@ function msvcrt_config_filter()
 	return nil
 end
 
--- Set once xp_workspace() has applied either piece at workspace scope, where it reaches every
--- project. The per-project entry points below then do nothing: linking YY-Thunks' object TWICE
--- is not a harmless duplicate but ~1100 duplicate symbols, and VC-LTL's directories said twice
--- are merely noise. This is what keeps ThunksTest's own use_vc_ltl()/use_yy_thunks() calls
--- correct under --toolset=v141_xp, where they are the only source of either, AND under
--- --toolset=v143 --support-winxp=on, where the workspace has already done it.
+-- Set once xp_workspace() has applied either piece at workspace scope (reaching every project). The
+-- per-project entry points below then do nothing: linking YY-Thunks' object TWICE is not a harmless
+-- duplicate but ~1100 duplicate symbols, and VC-LTL's directories said twice are mere noise. This
+-- keeps ThunksTest's own use_vc_ltl()/use_yy_thunks() correct under --toolset=v141_xp (their only
+-- source of either) AND under --toolset=v143 --support-winxp=on (workspace already did it).
 local workspaceVCLTL = false
 local workspaceThunks = false
 
 -- VC-LTL5 in place of the stock CRT.
 --
--- The stock v143 CRT reaches for FlsAlloc, InitializeCriticalSectionEx and friends from its own
--- startup, none of which XP has. VC-LTL's binds to the msvcrt.dll built into Windows instead -
--- there since NT 4, and predating FLS entirely - so the CRT simply never asks.
+-- The stock v143 CRT reaches for FlsAlloc, InitializeCriticalSectionEx and friends from its startup,
+-- none of which XP has. VC-LTL's binds to the msvcrt.dll built into Windows (there since NT 4,
+-- predating FLS entirely), so the CRT simply never asks.
 --
--- THE TARGET PLATFORM IS PINNED rather than left to VC-LTL's own detection, which keys off
--- SupportWinXP or an "_xp" in the toolset name. Neither is true of a v143 project, and XP is the
--- whole point here. VC-LTL ships 5.1.2600.0 for Win32 ONLY and 5.2.3790.0 for x64 only - XP x64
--- reports itself as 5.2, as Server 2003 did - so the version has to follow the architecture.
--- Naming one for both is how an x64 build silently ends up with library directories that do not
--- exist, and the stock CRT linked because nothing failed.
+-- THE TARGET PLATFORM IS PINNED, not left to VC-LTL's own detection (which keys off SupportWinXP or
+-- "_xp" in the toolset name - neither true of a v143 project, and XP is the point). VC-LTL ships
+-- 5.1.2600.0 for Win32 ONLY and 5.2.3790.0 for x64 only - XP x64 reports 5.2 as Server 2003 did - so
+-- the version follows the architecture. Naming one for both is how an x64 build silently ends up with
+-- non-existent library directories and the stock CRT linked because nothing failed.
 --
--- CHECKED AT GENERATION TIME, because the failure is otherwise silent and late: with the variable
--- unset the paths resolve to nothing, the stock CRT gets linked, and the result builds and runs
--- perfectly here while being unable to load on XP.
+-- CHECKED AT GENERATION TIME, else the failure is silent and late: with the variable unset the paths
+-- resolve to nothing, the stock CRT links, and it builds and runs perfectly here while unable to load on XP.
 local VC_LTL_PLATFORMS = {
-	-- 6.0.6000.0 is VC-LTL's own floor and the one that ships both architectures. It is what
+	-- 6.0.6000.0 is VC-LTL's own floor and the one shipping both architectures. What
 	-- --use-msvcrt=on --support-winxp=off asks for: msvcrt.dll for the size, Vista for the floor.
 	{ arch = "x86",    xp = "5.1.2600.0", plain = "6.0.6000.0", lib = "Win32" },
 	{ arch = "x86_64", xp = "5.2.3790.0", plain = "6.0.6000.0", lib = "x64" },
@@ -330,14 +324,14 @@ function use_vc_ltl()
 	local root = os.getenv("VC_LTL_Root")
 
 	-- nil, or "not configurations:Debug" when --use-msvcrt=release. Added to every filter below so a Debug
-	-- build in that mode gets none of VC-LTL and links the toolset's own (debug) CRT instead - while every
+	-- build in that mode gets none of VC-LTL and links the toolset's own (debug) CRT, while every
 	-- release-type config (Release, Public Release, ...) still binds msvcrt.dll.
 	local cfg = msvcrt_config_filter()
 
 	for _, platform in ipairs(VC_LTL_PLATFORMS) do
-		-- An explicit --target-os picks the tier for its own floor, PER ARCH, and nil skips an arch with
-		-- no msvcrt (Windows 2000 x86 - its msvcrt.dll is too old, so that arch stays on the static CRT);
-		-- the legacy path keeps XP-or-Vista.
+		-- An explicit --target-os picks the tier for its floor, PER ARCH; nil skips an arch with no
+		-- msvcrt (Win2000 x86 - msvcrt.dll too old, so that arch stays on the static CRT); the legacy
+		-- path keeps XP-or-Vista.
 		local info = os_info()
 		local version = (info and info[platform.arch].vcltl)
 			or (not info and (support_winxp() and platform.xp or platform.plain))
@@ -349,11 +343,11 @@ function use_vc_ltl()
 					.. "TargetPlatform/" .. version .. ".")
 			end
 
-			-- THE SEPARATOR IS OURS TO ADD, not something the variable has to carry. The check above
-			-- inserts one; emitting "$(VC_LTL_Root)TargetPlatform/" did not, so a value without a
-			-- trailing slash passed the check and then produced ...VC-LTL5TargetPlatform. Windows
-			-- takes a doubled separator perfectly happily - measured, C:\x\/y resolves the same as
-			-- C:\x\y - so one slash here is correct whichever way the variable is written.
+			-- THE SEPARATOR IS OURS TO ADD, not something the variable carries. The check above inserts
+			-- one; emitting "$(VC_LTL_Root)TargetPlatform/" did not, so a value without a trailing slash
+			-- passed the check then produced ...VC-LTL5TargetPlatform. Windows takes a doubled separator
+			-- happily (measured: C:\x\/y resolves the same as C:\x\y), so one slash here is correct
+			-- whichever way the variable is written.
 			local ltl = "$(VC_LTL_Root)/TargetPlatform/"
 
 			local terms = { "architecture:" .. platform.arch }
@@ -374,31 +368,30 @@ function use_vc_ltl()
 
 	filter {}
 
-	-- The import libraries above replace libucrt and libvcruntime, which are the linker's default
-	-- names only for a static CRT. Common.lua already says this at workspace scope; repeating it
-	-- is what makes the function correct when called on its own.
+	-- The import libraries above replace libucrt and libvcruntime, the linker's default names only for
+	-- a static CRT. Common.lua already says this at workspace scope; repeating it makes the function
+	-- correct when called on its own.
 	staticruntime "On"
 end
 
--- YY-Thunks: the Win32 half of the same problem, where VC-LTL is the CRT half.
+-- YY-Thunks: the Win32 half of the same problem, VC-LTL being the CRT half.
 --
--- One object file that DEFINES the __imp__ symbols for APIs XP lacks, so a call windows.h
--- compiled as `call [__imp__AcquireSRWLockExclusive@4]` binds to it rather than to kernel32. An
--- object on the link line is included unconditionally - a library member is pulled only to
--- resolve something still undefined - which is why this works where a static library cannot.
+-- One object file DEFINING the __imp__ symbols for APIs XP lacks, so a windows.h call compiled as
+-- `call [__imp__AcquireSRWLockExclusive@4]` binds to it rather than kernel32. An object on the link
+-- line is included unconditionally (a library member is pulled only to resolve something undefined),
+-- which is why this works where a static library cannot.
 --
--- Named through linkoptions rather than links{} so it lands verbatim: premake would otherwise try
--- to interpret a path with an extension as a project name. ONE spelling, because xp_no_thunks()
--- takes it back out by exact string match and a second copy of the path would not match.
+-- Named through linkoptions not links{} so it lands verbatim: premake would otherwise interpret a path
+-- with an extension as a project name. ONE spelling, because xp_no_thunks() removes it by exact string
+-- match and a second copy of the path would not match.
 --
--- THE SEPARATOR AFTER THE MACRO IS OURS, as it is for VC-LTL above: this read
--- "$(YY_Thunks_Root)objs/..." and so quietly required the variable to end in a slash, which the
--- check below does not require and nothing tells you. YY-Thunks has no such convention of its
--- own - VC-LTL's documentation does, which is how the two came to differ.
--- PER ARCH: the obj's dir is x86 or x64, and its suffix follows --target-os for THAT arch - Windows 2000
--- x64 uses XP's (WinXP), there being no 64-bit Windows 2000; 8.1 reuses Win8; the legacy path keeps WinXP.
--- A function rather than one string, so the suffixes can differ by arch (they do only for 2000) and
--- xp_no_thunks() rebuilds the SAME string, under the same arch filter, to remove it.
+-- THE SEPARATOR AFTER THE MACRO IS OURS, as for VC-LTL above: this read "$(YY_Thunks_Root)objs/..."
+-- and so quietly required the variable to end in a slash, which the check below does not and nothing
+-- tells you. YY-Thunks has no such convention; VC-LTL's documentation does, which is how they differ.
+-- PER ARCH: the obj's dir is x86 or x64, and its suffix follows --target-os for THAT arch - Win2000 x64
+-- uses XP's (WinXP, no 64-bit Win2000); 8.1 reuses Win8; the legacy path keeps WinXP. A function not one
+-- string, so suffixes can differ by arch (only for 2000) and xp_no_thunks() rebuilds the SAME string,
+-- under the same arch filter, to remove it.
 local function yy_thunks_obj(arch)
 	local info = os_info()
 	local suffix = (info and info[arch].thunks) or "WinXP"
@@ -429,36 +422,35 @@ function use_yy_thunks()
 
 	filter {}
 
-	-- /OPT:REF EVEN IN DEBUG, which is not the usual advice and is needed here. The object holds a
-	-- thunk for around 1100 APIs, and some of them reach other DLLs directly rather than through
-	-- GetProcAddress - so without dead-code removal the exe acquires a static dependency on every
-	-- one. Measured: 23 imported DLLs in Debug against 2 in Release, including ESENT and WINHTTP
-	-- for a program that does nothing of the sort. Release already sets this; Debug does not.
+	-- /OPT:REF EVEN IN DEBUG, not the usual advice but needed here. The object holds a thunk for ~1100
+	-- APIs, some reaching other DLLs directly rather than through GetProcAddress - so without dead-code
+	-- removal the exe acquires a static dependency on every one. Measured: 23 imported DLLs in Debug vs
+	-- 2 in Release, including ESENT and WINHTTP for a program that does nothing of the sort. Release
+	-- already sets this; Debug does not.
 	linkoptions { "/OPT:REF" }
 
-	-- Both are incompatible with /OPT:REF and would otherwise be reported as LNK4075 on every
-	-- Debug link. Saying so here is the same decision stated once rather than warned about twice.
+	-- Both are incompatible with /OPT:REF and would otherwise be LNK4075 on every Debug link. Saying so
+	-- here is the same decision stated once rather than warned about twice.
 	editandcontinue "Off"
 	linkoptions { "/INCREMENTAL:NO" }
 
-	-- LNK4075: ignoring /EDITANDCONTINUE due to /OPT:ICF. The remaining one comes from VC-LTL's
-	-- own prebuilt objects, which carry the directive and cannot be recompiled from here. Turning
-	-- it off above covers our code; this covers theirs.
+	-- LNK4075: ignoring /EDITANDCONTINUE due to /OPT:ICF. The remaining one comes from VC-LTL's prebuilt
+	-- objects, which carry the directive and cannot be recompiled from here. Off above covers our code;
+	-- this covers theirs.
 	linkoptions { "/ignore:4075" }
 end
 
--- THE SUBSYSTEM HAS TO BE SAID OUT LOUD on a toolset that is not v141_xp, whose Toolset.props
--- sets it from its own targets. v143 emits 6.00 and XP refuses that whatever the imports look
--- like - a load failure at process start, not a missing feature.
+-- THE SUBSYSTEM HAS TO BE SAID OUT LOUD on a toolset that is not v141_xp (whose Toolset.props sets it
+-- from its own targets). v143 emits 6.00 and XP refuses that whatever the imports look like - a load
+-- failure at process start, not a missing feature.
 --
--- AND IT HAS TO BE SAID PER KIND, which is why Common.lua deliberately does not say it at all:
--- one /SUBSYSTEM:CONSOLE at workspace scope turns every WindowedApp here into a console program.
--- j-xp.cmake needs a generator expression for this because CMake reads WIN32_EXECUTABLE too
--- early; premake's kind filters answer it directly.
+-- AND PER KIND, which is why Common.lua deliberately does not say it at all: one /SUBSYSTEM:CONSOLE at
+-- workspace scope turns every WindowedApp here into a console program. j-xp.cmake needs a generator
+-- expression because CMake reads WIN32_EXECUTABLE too early; premake's kind filters answer directly.
 --
--- XP x64 reports itself as 5.2, as Server 2003 did - so the version follows the architecture,
--- and a project naming 5.01 for both is wrong on one of them.
--- Per arch, from --target-os (down for XP/2000, up for 8/8.1/10/11); the legacy path keeps XP's 5.01/5.02.
+-- XP x64 reports 5.2 as Server 2003 did - so the version follows the architecture, and a project
+-- naming 5.01 for both is wrong on one. Per arch, from --target-os (down for XP/2000, up for
+-- 8/8.1/10/11); the legacy path keeps XP's 5.01/5.02.
 local function subsystem_version(arch)
 	local info = os_info()
 	if info then
@@ -475,9 +467,9 @@ local function ver_num(v)
 end
 
 -- The linker floors /SUBSYSTEM at 5.01 (x86) / 5.02 (x64): anything lower is LNK4010 and silently
--- becomes 6.0. So the LINK uses the greater of the wanted version and the floor (no warning, no 6.0
--- surprise), and a wanted-below-floor target (only Windows 2000 x86, 5.00) is corrected to its real
--- value by a post-link PE patch - see patch_subsystem_postbuild().
+-- becomes 6.0. So the LINK uses the greater of wanted and floor (no warning, no 6.0 surprise), and a
+-- wanted-below-floor target (only Win2000 x86, 5.00) is corrected to its real value by a post-link PE
+-- patch - see patch_subsystem_postbuild().
 local SUBSYSTEM_FLOOR = { x86 = "5.01", x86_64 = "5.02" }
 
 local function link_subsystem_version(arch)
@@ -518,10 +510,10 @@ local function subsystem_linkoptions(subsystem, kindFilter)
 	filter {}
 end
 
--- Post-link PE patch for a below-floor target (only Windows 2000 x86, 5.00): the link above used the
--- 5.01 floor, so this stamps the real OS/subsystem 5.0 into the header afterwards. Non-StaticLib only
--- (an archive has no PE header). The patcher is compiled on first use by its wrapper, not a solution
--- project - tools/pesubsys. A no-op for every other target (nothing is below its floor).
+-- Post-link PE patch for a below-floor target (only Win2000 x86, 5.00): the link above used the 5.01
+-- floor, so this stamps the real OS/subsystem 5.0 into the header afterwards. Non-StaticLib only (an
+-- archive has no PE header). The patcher (tools/pesubsys) is compiled on first use by its wrapper, not
+-- a solution project. A no-op for every other target (nothing below its floor).
 local function patch_subsystem_postbuild()
 	local wrapper = path.translate(path.getabsolute("../tools/pesubsys/pesubsys.cmd", XP_SCRIPT_DIR), "\\")
 
@@ -540,16 +532,15 @@ local function patch_subsystem_postbuild()
 	filter {}
 end
 
--- FOR A PROJECT THAT SUPPLIES THE DOWNLEVEL APIS ITSELF, and so must not also link an object
--- defining them. Downlevel is the whole example: it EXPORTS GetTickCount64 for XP, and
--- YY_Thunks_for_WinXP.obj defines it too, so both on one link line is LNK2005 and then LNK1169.
--- The two are ALTERNATIVES - the same job answered with a DLL to ship or an object to link - and
--- a project that is one of them cannot be built out of the other.
+-- FOR A PROJECT THAT SUPPLIES THE DOWNLEVEL APIS ITSELF, and so must not also link an object defining
+-- them. Downlevel is the example: it EXPORTS GetTickCount64 for XP, and YY_Thunks_for_WinXP.obj defines
+-- it too, so both on one link line is LNK2005 then LNK1169. The two are ALTERNATIVES (a DLL to ship or
+-- an object to link), and a project that is one cannot be built out of the other.
 --
 --     xp_no_thunks()   -- after common_project(), before anything else adds link options
 --
--- Only the object is taken back out. /OPT:REF and the rest were added on its account but are
--- harmless without it, and /OPT:REF in particular is still wanted.
+-- Only the object is taken back out. /OPT:REF and the rest were added on its account but are harmless
+-- without it, and /OPT:REF in particular is still wanted.
 function xp_no_thunks()
 	-- Per arch, matching how use_yy_thunks added it (the x86/x64 obj strings differ for Windows 2000).
 	for _, arch in ipairs({ "x86", "x86_64" }) do
@@ -560,14 +551,14 @@ function xp_no_thunks()
 	filter {}
 end
 
--- FOR A PROJECT THAT SETS ITS OWN TOOLSET, and so cannot be served by xp_workspace() - here,
--- Downlevel and ThunksTest, which are v143 inside a workspace that may well be v141_xp. It names
--- its own subsystem because it knows its own kind, where the workspace has to filter for it.
+-- FOR A PROJECT THAT SETS ITS OWN TOOLSET, so cannot be served by xp_workspace() - here Downlevel and
+-- ThunksTest, v143 inside a workspace that may well be v141_xp. It names its own subsystem because it
+-- knows its own kind, where the workspace has to filter for it.
 --
 --     xp_subsystem("CONSOLE")   -- or "WINDOWS"
 --
--- Does nothing once xp_workspace() has covered the whole tree, so the two cannot both fire and
--- leave two /SUBSYSTEM options on one link line.
+-- Does nothing once xp_workspace() has covered the whole tree, so the two cannot both fire and leave
+-- two /SUBSYSTEM options on one link line.
 function xp_subsystem(subsystem)
 	if workspaceThunks then
 		return
@@ -577,17 +568,17 @@ function xp_subsystem(subsystem)
 	patch_subsystem_postbuild()
 end
 
--- Ship the UCRT (and the VC runtime) app-local for --crt=ucrt-local, so a /MD binary runs on XP SP3+
--- with nothing installed. Per arch (the redist folder is x86/x64, not $(Platform)'s Win32); the wrapper
--- copies the redistributable release set always and, for Debug, the non-redistributable debug DLLs too
+-- Ship the UCRT (and VC runtime) app-local for --crt=ucrt-local, so a /MD binary runs on XP SP3+ with
+-- nothing installed. Per arch (redist folder is x86/x64, not $(Platform)'s Win32); the wrapper copies
+-- the redistributable release set always and, for Debug, the non-redistributable debug DLLs too
 -- (ucrtbased / vcruntime140d), so a local debug build runs - that build cannot be shared. Non-StaticLib
--- only (nothing is deployed beside an archive). Paths come from MSBuild macros, resolved at build time.
+-- only (nothing deployed beside an archive). Paths are MSBuild macros, resolved at build time.
 local function copy_ucrt_local(cfg)
 	local wrapper = path.translate(path.getabsolute("../tools/copyucrt/copyucrt.cmd", XP_SCRIPT_DIR), "\\")
 
 	for _, p in ipairs({ { arch = "x86", dir = "x86" }, { arch = "x86_64", dir = "x64" } }) do
 		-- $(VCInstallDir), not $(VCToolsRedistDir) - the latter is not a defined MSBuild property (empty);
-		-- the wrapper derives the redist dir from VCInstallDir. $(WindowsSdkDir)/$(UCRTVersion) are real.
+		-- the wrapper derives the redist dir from it. $(WindowsSdkDir)/$(UCRTVersion) are real.
 		local terms = { "architecture:" .. p.arch, "not kind:StaticLib" }
 		if cfg then table.insert(terms, cfg) end
 
@@ -602,8 +593,8 @@ end
 
 -- Apply one CRT mode under one config filter ("configurations:Debug" / "not configurations:Debug"). Only
 -- the dynamic (/MD) modes need doing here - static is Common.lua's default, and msvcrt is handled by
--- use_vc_ltl under msvcrt_config_filter(). staticruntime "Off" under the filter overrides that default for
--- just those configs; it is set AFTER use_vc_ltl's own workspace-scope "On" so the per-config value wins.
+-- use_vc_ltl under msvcrt_config_filter(). staticruntime "Off" under the filter overrides that default
+-- for just those configs; set AFTER use_vc_ltl's workspace-scope "On" so the per-config value wins.
 local function apply_dynamic_crt(mode, cfg)
 	if mode ~= "dynamic" and mode ~= "ucrt-local" then
 		return
@@ -621,14 +612,14 @@ end
 
 function xp_workspace()
 	-- CRT FIRST, and PER CONFIG. The dynamic (/MD) modes are independent of the XP downlevel machinery, so
-	-- they must be applied even when needs_downlevel() is false (a plain win10 target) - i.e. before the
-	-- early return below. VC-LTL (msvcrt) goes first so its workspace-scope staticruntime "On" is in place
-	-- before apply_dynamic_crt() flips the dynamic configs back to "Off" under their own filter.
+	-- must be applied even when needs_downlevel() is false (a plain win10 target) - i.e. before the early
+	-- return below. VC-LTL (msvcrt) goes first so its workspace-scope staticruntime "On" is in place before
+	-- apply_dynamic_crt() flips the dynamic configs back to "Off" under their own filter.
 	local rel, dbg = crt_pair()
 
 	-- STATIC LIBRARIES WANT NONE OF THE THUNKS and are excluded throughout: the thunks object is pulled
-	-- into whatever links them, so linking it here as well only collides, and premake routes linkoptions
-	-- to <Lib> for a StaticLib, where lib.exe has no idea what /OPT:REF means.
+	-- into whatever links them, so linking it here too only collides, and premake routes linkoptions to
+	-- <Lib> for a StaticLib, where lib.exe has no idea what /OPT:REF means.
 	if use_msvcrt() then
 		use_vc_ltl()
 		workspaceVCLTL = true
@@ -637,9 +628,9 @@ function xp_workspace()
 	apply_dynamic_crt(rel, "not configurations:Debug")
 	apply_dynamic_crt(dbg, "configurations:Debug")
 
-	-- The Win32 APIs, a separate question from the CRT, applied when the target is downlevel: an explicit
-	-- --target-os of 2000..8.1, or - unchanged - the legacy support_winxp() (XP). v141_xp and a native
-	-- target (10/11, or support-winxp=off) answer for themselves and need nothing added.
+	-- The Win32 APIs, separate from the CRT, applied when the target is downlevel: explicit --target-os
+	-- of 2000..8.1, or - unchanged - the legacy support_winxp() (XP). v141_xp and a native target (10/11,
+	-- or support-winxp=off) answer for themselves and need nothing added.
 	if not needs_downlevel() then
 		filter {}
 		return
@@ -678,11 +669,11 @@ function xp_workspace()
 	workspaceThunks = true
 end
 
--- A read-only action for the Generate driver: print the settings this configuration RESOLVES to -
--- the consumer's premake5.lua defaults included - and write no project files, so the user can see
--- what "generate now" commits to before choosing. Runs the consumer script like any action (so the
--- options and their defaults are parsed), then prints and exits. The driver adds the Visual Studio
--- version it already knows; everything here is what this file and Common.lua decide.
+-- A read-only action for the Generate driver: print the settings this configuration RESOLVES to
+-- (consumer premake5.lua defaults included) and write no project files, so the user sees what "generate
+-- now" commits to before choosing. Runs the consumer script like any action (so options and defaults
+-- are parsed), then prints and exits. The driver adds the Visual Studio version it already knows;
+-- everything here is what this file and Common.lua decide.
 newaction {
 	trigger = "jbuild-summary",
 	description = "Print the resolved build settings and exit (writes no project files)",

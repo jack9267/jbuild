@@ -21,7 +21,7 @@ option(SUPPORT_WINXP "Produce binaries that run on Windows XP" ${USING_XP_TOOLSE
 option(USE_MSVCRT "Link Windows' own msvcrt.dll as the CRT, through VC-LTL5" OFF)
 
 # XP's loader never patches a LoadLibrary'd module's _tls_index, breaking its thread_local. Off:
-# ModLauncher's DynamicTLSFixup.h fixes that at load, and Galactic has no thread_local. Replaces
+# a consumer's load-time TLS fixup handles it, and Galactic has no thread_local. Replaces
 # the DLL's entry point.
 option(USE_YY_THUNKS_TLS "Let YY-Thunks initialise a DLL's own TLS on XP" OFF)
 
