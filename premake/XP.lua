@@ -420,7 +420,9 @@ function use_yy_thunks()
 			linkoptions { yy_thunks_obj(arch) }
 	end
 
-	filter {}
+	-- /OPT:REF, /INCREMENTAL:NO and /ignore:4075 below are linker-only: exclude StaticLibs, whose lib.exe
+	-- archive step would LNK4044 ("unrecognized option; ignored") on each.
+	filter { "not kind:StaticLib" }
 
 	-- /OPT:REF EVEN IN DEBUG, not the usual advice but needed here. The object holds a thunk for ~1100
 	-- APIs, some reaching other DLLs directly rather than through GetProcAddress - so without dead-code
@@ -438,6 +440,8 @@ function use_yy_thunks()
 	-- objects, which carry the directive and cannot be recompiled from here. Off above covers our code;
 	-- this covers theirs.
 	linkoptions { "/ignore:4075" }
+
+	filter {}
 end
 
 -- THE SUBSYSTEM HAS TO BE SAID OUT LOUD on a toolset that is not v141_xp (whose Toolset.props sets it
