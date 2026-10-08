@@ -58,6 +58,7 @@ $ErrorActionPreference = 'Stop'
 if (-not $VisualStudio) {
     $versions = @('2022', '2019', '2017')
     if ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
+        # --- Visual Studio version ---
         Write-Host ''
         Write-Host 'Generate for which Visual Studio?'
         for ($i = 0; $i -lt $versions.Count; $i++) {
@@ -65,8 +66,48 @@ if (-not $VisualStudio) {
         }
         $pick = Read-Host 'Enter 1-3 (or press Enter for the default)'
         if ([string]::IsNullOrWhiteSpace($pick)) { $VisualStudio = $versions[0] }
-        elseif ($pick -match '^[1-3]$')         { $VisualStudio = $versions[[int]$pick - 1] }
+        elseif ($pick -match '^[1-3]$')          { $VisualStudio = $versions[[int]$pick - 1] }
         else { Write-Error "Not a choice: '$pick'."; exit 1 }
+
+        # --- optional extra options ---
+        # Only the knobs the consumer's premake actually declares are offered, so we never pass an unknown
+        # flag (premake errors on one). Discover declared options by scanning its premake tree for newoption
+        # triggers. Each prompt defaults to Enter = keep premake5.lua's own default.
+        if ((Read-Host "`nPress Enter to generate now, or type 'o' to set options") -match '^[oO]') {
+            $declared = @(Get-ChildItem (Join-Path $Root 'premake') -Recurse -Filter *.lua -EA SilentlyContinue |
+                Select-String -Pattern 'trigger\s*=\s*"([^"]+)"' -AllMatches |
+                ForEach-Object { $_.Matches } | ForEach-Object { $_.Groups[1].Value }) | Sort-Object -Unique
+
+            # SpiderMonkey ESR - list what's actually installed under jspidermonkey_home.
+            if (($declared -contains 'spidermonkey-version') -and -not $SpiderMonkeyVersion -and
+                $env:jspidermonkey_home -and (Test-Path -LiteralPath $env:jspidermonkey_home)) {
+                $esr = @(Get-ChildItem -LiteralPath $env:jspidermonkey_home -Directory -Filter 'esr*' -EA SilentlyContinue |
+                    ForEach-Object { $_.Name -replace '^esr', '' } | Where-Object { $_ -match '^\d+$' }) |
+                    Sort-Object { [int]$_ }
+                if ($esr) {
+                    Write-Host "`nSpiderMonkey ESR (installed under $env:jspidermonkey_home):"
+                    for ($i = 0; $i -lt $esr.Count; $i++) { Write-Host ("  [{0}] esr{1}" -f ($i + 1), $esr[$i]) }
+                    $p = Read-Host "Enter 1-$($esr.Count) (or Enter to keep premake5.lua's default)"
+                    if ($p -match '^\d+$' -and [int]$p -ge 1 -and [int]$p -le $esr.Count) { $SpiderMonkeyVersion = $esr[[int]$p - 1] }
+                }
+            }
+            # Windows XP support.
+            if (($declared -contains 'support-winxp') -and -not $SupportWinXP) {
+                $p = Read-Host "`nWindows XP support?  [Enter] keep default (On) / 1 On / 2 Off"
+                if ($p -eq '1') { $SupportWinXP = 'On' } elseif ($p -eq '2') { $SupportWinXP = 'Off' }
+            }
+            # CRT.
+            if (($declared -contains 'use-msvcrt') -and -not $UseMsvcrt) {
+                $p = Read-Host "`nCRT?  [Enter] keep default / 1 msvcrt (VC-LTL5) / 2 static UCRT"
+                if ($p -eq '1') { $UseMsvcrt = 'On' } elseif ($p -eq '2') { $UseMsvcrt = 'Off' }
+            }
+            # Build after generating?
+            if (-not $Build) {
+                $p = Read-Host "`nBuild after generating?  [Enter] no, just generate / 1 Release / 2 Debug"
+                if ($p -eq '1') { $Build = $true; $Configuration = 'Release' }
+                elseif ($p -eq '2') { $Build = $true; $Configuration = 'Debug' }
+            }
+        }
     }
     else { $VisualStudio = $versions[0] }
 }
