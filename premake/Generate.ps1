@@ -81,8 +81,16 @@ if (-not $VisualStudio) {
         # Only the knobs the consumer's premake actually declares are offered, so we never pass an unknown
         # flag (premake errors on one). Discover declared options by scanning its premake tree for newoption
         # triggers. Each prompt defaults to Enter = keep premake5.lua's own default.
-        if ((Read-Host "`nPress Enter to generate now, or type 'o' to set options") -match '^[oO]') {
-            $declared = @(Get-ChildItem (Join-Path $Root 'premake') -Recurse -Filter *.lua -EA SilentlyContinue |
+        Write-Host ''
+        Write-Host "Press 'o' to set options, or Enter to generate now " -NoNewline
+        $gate = [Console]::ReadKey($true); Write-Host ''
+        if ($gate.KeyChar -eq 'o' -or $gate.KeyChar -eq 'O') {
+            # Scan the consumer's premake dir AND this driver's own dir ($PSScriptRoot) - the shared jbuild
+            # modules (XP.lua / Common.lua, which declare support-winxp / use-msvcrt) live beside the driver,
+            # so options moved into the jbuild submodule are still discovered.
+            $declared = @(
+                (@(Get-ChildItem (Join-Path $Root 'premake') -Recurse -Filter *.lua -EA SilentlyContinue) +
+                 @(Get-ChildItem $PSScriptRoot -Filter *.lua -EA SilentlyContinue)) |
                 Select-String -Pattern 'trigger\s*=\s*"([^"]+)"' -AllMatches |
                 ForEach-Object { $_.Matches } | ForEach-Object { $_.Groups[1].Value }) | Sort-Object -Unique
 
@@ -93,10 +101,18 @@ if (-not $VisualStudio) {
                     ForEach-Object { $_.Name -replace '^esr', '' } | Where-Object { $_ -match '^\d+$' }) |
                     Sort-Object { [int]$_ }
                 if ($esr) {
+                    # mark the consumer's own declared default (premake5.lua's spidermonkey-version default)
+                    $smDefault = $null
+                    $pml = Join-Path $Root 'premake\premake5.lua'
+                    if ((Test-Path -LiteralPath $pml) -and
+                        ((Get-Content -LiteralPath $pml -Raw) -match '(?s)spidermonkey-version.*?default\s*=\s*"(\d+)"')) { $smDefault = $Matches[1] }
                     Write-Host ''
                     Write-Host (Paint "SpiderMonkey ESR (installed under $env:jspidermonkey_home):" '1;36')
-                    for ($i = 0; $i -lt $esr.Count; $i++) { Write-Host ("  {0} esr{1}" -f (Paint ("[{0}]" -f ($i + 1)) '0;36'), $esr[$i]) }
-                    $p = Read-Host "Enter 1-$($esr.Count) (or Enter to keep premake5.lua's default)"
+                    for ($i = 0; $i -lt $esr.Count; $i++) {
+                        $mark = if ($esr[$i] -eq $smDefault) { Paint '  (default)' '0;32' } else { '' }
+                        Write-Host ("  {0} esr{1}{2}" -f (Paint ("[{0}]" -f ($i + 1)) '0;36'), $esr[$i], $mark)
+                    }
+                    $p = Read-Host "Enter 1-$($esr.Count) (or Enter to keep the default)"
                     if ($p -match '^\d+$' -and [int]$p -ge 1 -and [int]$p -le $esr.Count) { $SpiderMonkeyVersion = $esr[[int]$p - 1] }
                 }
             }
@@ -171,15 +187,18 @@ if (-not $Build) {
     Write-Host ''
     Write-Host (Paint 'Build now? Pick a configuration, or press Enter to just generate and open it yourself:' '1;36')
     for ($i = 0; $i -lt $slnConfigs.Count; $i++) { Write-Host ("  {0} {1}" -f (Paint ("[{0}]" -f ($i + 1)) '0;36'), $slnConfigs[$i]) }
-    $p = Read-Host "Enter 1-$($slnConfigs.Count) to build (or Enter to skip)"
+    $cfgAllIdx = $slnConfigs.Count + 1
+    if ($slnConfigs.Count -gt 1) { Write-Host ("  {0} All ({1})" -f (Paint ("[{0}]" -f $cfgAllIdx) '0;36'), ($slnConfigs -join ' + ')) }
+    $p = Read-Host 'Enter a number to build (or Enter to skip)'
     if ([string]::IsNullOrWhiteSpace($p)) { exit 0 }
     elseif ($p -match '^\d+$' -and [int]$p -ge 1 -and [int]$p -le $slnConfigs.Count) { $Build = $true; $Configuration = $slnConfigs[[int]$p - 1] }
+    elseif ($slnConfigs.Count -gt 1 -and $p -eq "$cfgAllIdx") { $Build = $true; $Configuration = 'All' }
     else { Write-Error "Not a choice: '$p'."; exit 1 }
 }
 
-# Resolve the configuration (prefer Release) and validate it against the solution.
+# Resolve the configuration (prefer Release) and validate it against the solution ('All' = every config).
 if (-not $Configuration) { $Configuration = if ($slnConfigs -contains 'Release') { 'Release' } else { $slnConfigs[0] } }
-elseif ($slnConfigs -notcontains $Configuration) {
+elseif ($Configuration -ne 'All' -and $slnConfigs -notcontains $Configuration) {
     Write-Error "The solution has no '$Configuration' configuration (has: $($slnConfigs -join ', '))."; exit 1
 }
 
@@ -209,16 +228,19 @@ if (-not (Test-Path -LiteralPath $vswhere)) {
 $msbuild = & $vswhere -latest -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
 if (-not $msbuild) { Write-Error 'No MSBuild was found. Build from Visual Studio instead.'; exit 1 }
 
-$targets = if ($Platform -eq 'All') { $slnPlatforms } else { @($Platform) }
-foreach ($plat in $targets) {
-    if ($slnPlatforms -notcontains $plat) {
-        Write-Warning "The solution has no '$plat' platform (has: $($slnPlatforms -join ', ')); skipping."
-        continue
+$buildConfigs   = if ($Configuration -eq 'All') { $slnConfigs }   else { @($Configuration) }
+$buildPlatforms = if ($Platform      -eq 'All') { $slnPlatforms } else { @($Platform) }
+foreach ($cfg in $buildConfigs) {
+    foreach ($plat in $buildPlatforms) {
+        if ($slnPlatforms -notcontains $plat) {
+            Write-Warning "The solution has no '$plat' platform (has: $($slnPlatforms -join ', ')); skipping."
+            continue
+        }
+        Write-Host ''
+        Write-Host "$(Tag 'build' '1;34') $cfg / $plat"
+        Write-Host ''
+        & $msbuild $solution.FullName "/p:Configuration=$cfg" "/p:Platform=$plat" /v:minimal /nologo /m
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     }
-    Write-Host ''
-    Write-Host "$(Tag 'build' '1;34') $Configuration / $plat"
-    Write-Host ''
-    & $msbuild $solution.FullName "/p:Configuration=$Configuration" "/p:Platform=$plat" /v:minimal /nologo /m
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 exit 0
