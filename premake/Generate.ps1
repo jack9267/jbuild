@@ -1,0 +1,107 @@
+<#
+.SYNOPSIS
+    Shared premake driver for repos that consume jbuild. Generates the Visual Studio solution and,
+    with -Build, builds it headlessly via MSBuild.
+
+.DESCRIPTION
+    The build is described by the CONSUMER's premake\premake5.lua; this script only maps friendly
+    parameters to premake options and runs the committed premake5.exe (co-located here), then locates
+    the generated solution and hands it to MSBuild. It is generic: the solution NAME and location come
+    from the consumer's premake `workspace` (location(rootPath)), never from this script - so the
+    generated *.sln is DISCOVERED, not hardcoded.
+
+    Generation alone is just `premake5.exe vs2022` run in the consumer's premake\ dir; this wrapper adds
+    the parameter mapping and the optional non-interactive build (CI / no Visual Studio open).
+
+.PARAMETER Root
+    The consumer repo root - where premake\premake5.lua lives and where its `location(rootPath)` writes
+    the .sln. Defaults to this script's grandparent (correct when jbuild is a submodule at <consumer>\jbuild);
+    pass it explicitly for a sibling checkout.
+
+.PARAMETER Build
+    Also build the generated solution with MSBuild after generating.
+#>
+param(
+    [string] $Root = (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent),
+
+    [ValidateSet('2017', '2019', '2022')]
+    [string] $VisualStudio = '2022',
+
+    [string] $Toolset = 'v143',
+
+    [switch] $Build,
+
+    [ValidateSet('Debug', 'Release')]
+    [string] $Configuration = 'Release',
+
+    [ValidateSet('Win32', 'x64')]
+    [string] $Platform = 'Win32',
+
+    [string] $NoEnhancedInstructions = '',
+    [string] $SupportWinXP = '',
+    [string] $UseMsvcrt = '',
+    [string] $YYThunksTLS = '',
+
+    [ValidateSet('0', '1', '2', '3', '4')]
+    [string] $WarningLevel = '',
+
+    # SpiderMonkey ESR the JS backend links against ($(jspidermonkey_home)\esr<NN>); empty keeps
+    # the consumer premake5.lua's default. Mirrors the engine's -DSPIDERMONKEY_VERSION.
+    [string] $SpiderMonkeyVersion = ''
+)
+
+$ErrorActionPreference = 'Stop'
+
+$premake = Join-Path $PSScriptRoot 'premake5.exe'
+if (-not (Test-Path -LiteralPath $premake)) {
+    Write-Error "premake5.exe is missing from $PSScriptRoot - it is committed to jbuild; check the working tree is complete."
+    exit 1
+}
+
+$consumerPremake = Join-Path $Root 'premake'
+if (-not (Test-Path -LiteralPath (Join-Path $consumerPremake 'premake5.lua'))) {
+    Write-Error "No premake5.lua under '$consumerPremake'. Pass -Root <consumer repo root>."
+    exit 1
+}
+
+$arguments = @("vs$VisualStudio", "--toolset=$Toolset")
+if ($NoEnhancedInstructions) { $arguments += "--no-enhanced-instructions=$($NoEnhancedInstructions.ToLower())" }
+if ($WarningLevel)           { $arguments += "--warning-level=$WarningLevel" }
+if ($SupportWinXP)           { $arguments += "--support-winxp=$($SupportWinXP.ToLower())" }
+if ($UseMsvcrt)              { $arguments += "--use-msvcrt=$($UseMsvcrt.ToLower())" }
+if ($YYThunksTLS)            { $arguments += "--yy-thunks-tls=$($YYThunksTLS.ToLower())" }
+if ($SpiderMonkeyVersion)    { $arguments += "--spidermonkey-version=$SpiderMonkeyVersion" }
+
+$xp = if ($SupportWinXP) { $SupportWinXP -eq 'On' } else { $true }
+Write-Host "premake    $(& $premake --version)"
+Write-Host "generating vs$VisualStudio ($Toolset, $(if ($xp) {'Windows XP and later'} else {'Windows 10 and later'}))"
+
+Push-Location $consumerPremake
+try {
+    & $premake @arguments
+    if ($LASTEXITCODE -ne 0) { Write-Error 'premake could not generate the solution.'; exit $LASTEXITCODE }
+} finally {
+    Pop-Location
+}
+
+# DISCOVER the generated solution - its name is the premake workspace's, written to location(rootPath).
+$solution = Get-ChildItem -LiteralPath $Root -Filter *.sln -File | Select-Object -First 1
+if (-not $solution) { Write-Error "premake generated no .sln under '$Root'."; exit 1 }
+Write-Host "solution   $($solution.FullName)"
+
+if (-not $Build) { exit 0 }
+
+# MSBuild is wherever this machine's Visual Studio put it; vswhere is the supported way to ask.
+$vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+if (-not (Test-Path -LiteralPath $vswhere)) {
+    Write-Error 'vswhere.exe was not found, so MSBuild cannot be located. Build from Visual Studio instead.'
+    exit 1
+}
+$msbuild = & $vswhere -latest -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
+if (-not $msbuild) { Write-Error 'No MSBuild was found. Build from Visual Studio instead.'; exit 1 }
+
+Write-Host ''
+Write-Host "building   $Configuration / $Platform"
+Write-Host ''
+& $msbuild $solution.FullName "/p:Configuration=$Configuration" "/p:Platform=$Platform" /v:minimal /nologo /m
+exit $LASTEXITCODE

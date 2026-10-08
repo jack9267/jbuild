@@ -12,6 +12,11 @@ build, install, and link, across three generators that must stay in lockstep. Th
   generator silently misses it. (Worked example: the esr140 `/utf-8`+`XP_WIN` consumer flags belong in
   `cmake/j-spidermonkey.cmake`, the premake SpiderMonkey wiring, and `make/spidermonkey.mk` alike.)
 - `premake/premake5.exe` is deliberately **committed** — consumers run it directly, nothing to install.
+- `premake/Generate.ps1` is the **shared** premake driver: it maps friendly params to premake options, runs
+  premake against the CONSUMER's `premake5.lua` (via `-Root`), then **discovers** and optionally MSBuilds the
+  generated `.sln`. The solution NAME lives in each consumer's `workspace(...)`, never in the driver, so nothing
+  consumer-specific is hardcoded here. A consumer keeps a thin wrapper that calls this with its own root (or,
+  once jbuild is its submodule, invokes it directly). Generation alone is still just `premake5.exe vs2022`.
 
 ## Conventions
 - **Never `git push`.** Commit when asked; report what's unpushed. (User always pushes.)
