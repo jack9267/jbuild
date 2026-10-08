@@ -24,8 +24,9 @@
 param(
     [string] $Root = (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent),
 
-    [ValidateSet('2017', '2019', '2022')]
-    [string] $VisualStudio = '2022',
+    # Empty offers an interactive menu (what a double-click with no args gets); a value skips it.
+    [ValidateSet('', '2017', '2019', '2022')]
+    [string] $VisualStudio = '',
 
     [string] $Toolset = 'v143',
 
@@ -51,6 +52,24 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+# No VS version chosen (e.g. a double-click with no args): offer a menu. In a non-interactive context
+# (piped / CI, where stdin is redirected) fall back to the newest so a prompt never hangs the run.
+if (-not $VisualStudio) {
+    $versions = @('2022', '2019', '2017')
+    if ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
+        Write-Host ''
+        Write-Host 'Generate for which Visual Studio?'
+        for ($i = 0; $i -lt $versions.Count; $i++) {
+            Write-Host ("  [{0}] Visual Studio {1}{2}" -f ($i + 1), $versions[$i], $(if ($i -eq 0) { '  (default)' } else { '' }))
+        }
+        $pick = Read-Host 'Enter 1-3 (or press Enter for the default)'
+        if ([string]::IsNullOrWhiteSpace($pick)) { $VisualStudio = $versions[0] }
+        elseif ($pick -match '^[1-3]$')         { $VisualStudio = $versions[[int]$pick - 1] }
+        else { Write-Error "Not a choice: '$pick'."; exit 1 }
+    }
+    else { $VisualStudio = $versions[0] }
+}
 
 $premake = Join-Path $PSScriptRoot 'premake5.exe'
 if (-not (Test-Path -LiteralPath $premake)) {
