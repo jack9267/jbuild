@@ -41,6 +41,11 @@ param(
     [string] $Platform = '',
 
     [string] $NoEnhancedInstructions = '',
+
+    # Oldest Windows the binaries must run on (supersedes -SupportWinXP). The menu offers this list.
+    [ValidateSet('', 'win2000', 'winxp', 'vista', 'win7', 'win8', 'win81', 'win10', 'win11')]
+    [string] $TargetOs = '',
+
     [string] $SupportWinXP = '',
     [string] $UseMsvcrt = '',
     [string] $YYThunksTLS = '',
@@ -116,13 +121,27 @@ if (-not $VisualStudio) {
                     if ($p -match '^\d+$' -and [int]$p -ge 1 -and [int]$p -le $esr.Count) { $SpiderMonkeyVersion = $esr[[int]$p - 1] }
                 }
             }
-            # Windows XP support.
-            if (($declared -contains 'support-winxp') -and -not $SupportWinXP) {
-                $p = Read-Host "`nWindows XP support?  [Enter] keep default (On) / 1 On / 2 Off"
-                if ($p -eq '1') { $SupportWinXP = 'On' } elseif ($p -eq '2') { $SupportWinXP = 'Off' }
+            # Target OS - the oldest Windows the output must run on. Supersedes --support-winxp; offered only
+            # when the consumer's XP.lua declares --target-os.
+            if (($declared -contains 'target-os') -and -not $TargetOs) {
+                $oses = @(
+                    @{ k = 'win2000'; n = 'Windows 2000  (32-bit only; x64 builds as XP x64 - unverified)' }
+                    @{ k = 'winxp';   n = 'Windows XP' }
+                    @{ k = 'vista';   n = 'Windows Vista' }
+                    @{ k = 'win7';    n = 'Windows 7' }
+                    @{ k = 'win8';    n = 'Windows 8' }
+                    @{ k = 'win81';   n = 'Windows 8.1' }
+                    @{ k = 'win10';   n = 'Windows 10' }
+                    @{ k = 'win11';   n = 'Windows 11' }
+                )
+                Write-Host ''
+                Write-Host (Paint 'Target OS - oldest Windows the binaries must run on?' '1;36')
+                for ($i = 0; $i -lt $oses.Count; $i++) { Write-Host ("  {0} {1}" -f (Paint ("[{0}]" -f ($i + 1)) '0;36'), $oses[$i].n) }
+                $p = Read-Host "Enter 1-$($oses.Count) (or Enter to keep the default)"
+                if ($p -match '^\d+$' -and [int]$p -ge 1 -and [int]$p -le $oses.Count) { $TargetOs = $oses[[int]$p - 1].k }
             }
-            # CRT.
-            if (($declared -contains 'use-msvcrt') -and -not $UseMsvcrt) {
+            # CRT - not offered for a Windows 2000 target (its x86 msvcrt.dll predates VC-LTL's XP floor).
+            if (($declared -contains 'use-msvcrt') -and -not $UseMsvcrt -and $TargetOs -ne 'win2000') {
                 $p = Read-Host "`nCRT?  [Enter] keep default / 1 msvcrt (VC-LTL5) / 2 static UCRT"
                 if ($p -eq '1') { $UseMsvcrt = 'On' } elseif ($p -eq '2') { $UseMsvcrt = 'Off' }
             }
@@ -146,6 +165,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $consumerPremake 'premake5.lua'))) {
 
 $arguments = @("vs$VisualStudio", "--toolset=$Toolset")
 if ($NoEnhancedInstructions) { $arguments += "--no-enhanced-instructions=$($NoEnhancedInstructions.ToLower())" }
+if ($TargetOs)               { $arguments += "--target-os=$TargetOs" }
 if ($WarningLevel)           { $arguments += "--warning-level=$WarningLevel" }
 if ($SupportWinXP)           { $arguments += "--support-winxp=$($SupportWinXP.ToLower())" }
 if ($UseMsvcrt)              { $arguments += "--use-msvcrt=$($UseMsvcrt.ToLower())" }

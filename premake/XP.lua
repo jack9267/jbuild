@@ -35,8 +35,76 @@
 --     xp_options { supportWinXP = "on", useMsvcrt = "on" }    XP and msvcrt.dll whatever builds it
 --
 -- A default is only a default: --support-winxp=off on the command line still wins over one.
+
+-- ===== TARGET OS (--target-os) =====
+-- An explicit --target-os supersedes the legacy support-winxp/toolset path and drives the subsystem
+-- version, the YY-Thunks obj and the VC-LTL tier TOGETHER, so the three cannot drift apart. When
+-- --target-os is absent, everything below falls back to the EXACT previous behavior - existing consumers
+-- are byte-for-byte unaffected - and --target-os=winxp is identical to --support-winxp=on.
+--
+-- EVERYTHING IS PER ARCH, because 64-bit Windows begins at XP x64 (NT 5.2 / Server 2003): a target older
+-- than XP has no 64-bit form, so its x86_64 column is XP x64's. Each arch carries:
+--   sub       PE subsystem version (what the exe declares it needs); an explicit target always stamps it,
+--             down for XP/2000 and up for 8/8.1/10/11. Distinct per OS, 10 and 11 alike at 10.00.
+--   thunks    the YY-Thunks obj suffix (YY_Thunks_for_<suffix>.obj); nil = native there, so no thunks and
+--             no subsystem lowering are needed (10/11). 8.1 reuses Win8 (YY ships no 8.1 obj).
+--   vcltl     VC-LTL TargetPlatform, used only under --use-msvcrt; nil = msvcrt.dll is not available for
+--             that arch. Win2000 x86 is nil: VC-LTL floors at XP and 2000's older msvcrt.dll (v6.10) lacks
+--             exports the XP bindings assume. Win2000 x64 is XP x64's, which does have it.
+--   xpEra     (per OS, not arch) true for the 2000/XP source flags Common.lua keys off support_winxp() for
+--             (/arch:IA32 for pre-SSE2 CPUs, /Zc:threadSafeInit- for the XP loader's TLS bug); Vista+ none.
+-- Windows 2000 is best-effort/unverified: YY-Thunks ships a Win2K obj, but the static UCRT's own floor is
+-- XP, so the CRT may still reach for APIs 2000 lacks. XP is the first genuinely-proven rung.
+local TARGET_OS = {
+	win2000 = { order = 1, label = "Windows 2000", xpEra = true,
+		x86    = { sub = "5.00",  thunks = "Win2K", vcltl = nil           },   -- real 2000; its msvcrt too old for VC-LTL
+		x86_64 = { sub = "5.02",  thunks = "WinXP", vcltl = "5.2.3790.0"  } },  -- no 64-bit 2000 -> XP x64
+	winxp   = { order = 2, label = "Windows XP", xpEra = true,
+		x86    = { sub = "5.01",  thunks = "WinXP", vcltl = "5.1.2600.0"  },
+		x86_64 = { sub = "5.02",  thunks = "WinXP", vcltl = "5.2.3790.0"  } },
+	vista   = { order = 3, label = "Windows Vista",
+		x86    = { sub = "6.00",  thunks = "Vista", vcltl = "6.0.6000.0"  },
+		x86_64 = { sub = "6.00",  thunks = "Vista", vcltl = "6.0.6000.0"  } },
+	win7    = { order = 4, label = "Windows 7",
+		x86    = { sub = "6.01",  thunks = "Win7",  vcltl = "6.0.6000.0"  },
+		x86_64 = { sub = "6.01",  thunks = "Win7",  vcltl = "6.0.6000.0"  } },
+	win8    = { order = 5, label = "Windows 8",
+		x86    = { sub = "6.02",  thunks = "Win8",  vcltl = "6.2.9200.0"  },
+		x86_64 = { sub = "6.02",  thunks = "Win8",  vcltl = "6.2.9200.0"  } },
+	win81   = { order = 6, label = "Windows 8.1",
+		x86    = { sub = "6.03",  thunks = "Win8",  vcltl = "6.2.9200.0"  },
+		x86_64 = { sub = "6.03",  thunks = "Win8",  vcltl = "6.2.9200.0"  } },
+	win10   = { order = 7, label = "Windows 10",
+		x86    = { sub = "10.00", thunks = nil,     vcltl = "10.0.19041.0" },
+		x86_64 = { sub = "10.00", thunks = nil,     vcltl = "10.0.19041.0" } },
+	win11   = { order = 8, label = "Windows 11",
+		x86    = { sub = "10.00", thunks = nil,     vcltl = "10.0.19041.0" },
+		x86_64 = { sub = "10.00", thunks = nil,     vcltl = "10.0.19041.0" } },
+}
+
+-- The chosen target, or nil for the legacy path. Defined up here so xp_options can list the allowed values.
+function target_os()
+	return _OPTIONS["target-os"]
+end
+
+local function os_info()
+	local t = target_os()
+	return t and TARGET_OS[t] or nil
+end
+
 function xp_options(defaults)
 	defaults = defaults or {}
+
+	-- The OS the OUTPUT must run on, oldest first. Supersedes --support-winxp (kept below for
+	-- compatibility); leave both out to follow the toolset, exactly as before.
+	local osAllowed = {}
+	for key, info in pairs(TARGET_OS) do osAllowed[info.order] = { key, info.label } end
+	newoption {
+		trigger = "target-os",
+		value = "OS",
+		description = "Oldest Windows the binaries must run on (win2000 .. win11); supersedes --support-winxp",
+		allowed = osAllowed
+	}
 
 	-- cmake's option(SUPPORT_WINXP ... ${USING_XP_TOOLSET}). With no default it follows the
 	-- TOOLSET, which is what "supports XP" meant before the two could differ.
@@ -106,6 +174,12 @@ if support_winxp == nil then
 end
 
 function support_winxp()
+	-- An explicit --target-os answers directly: only 2000/XP want the pre-SSE2 / XP-loader source flags.
+	local info = os_info()
+	if info then
+		return info.xpEra == true
+	end
+
 	local option = _OPTIONS["support-winxp"]
 
 	if option then
@@ -115,7 +189,26 @@ function support_winxp()
 	return using_xp_toolset()
 end
 
+-- The target needs the downlevel treatment (a lowered subsystem + YY-Thunks) rather than the toolset's
+-- own native output. For an explicit --target-os that is any OS still carrying a thunks obj (2000..8.1);
+-- for the legacy path it stays support_winxp() (XP), unchanged. v141_xp answers for itself, so is excluded.
+function needs_downlevel()
+	if using_xp_toolset() then
+		return false
+	end
+
+	local info = os_info()
+	if info then
+		return info.x86.thunks ~= nil or info.x86_64.thunks ~= nil
+	end
+
+	return support_winxp()
+end
+
 function use_msvcrt()
+	-- The plain option question. msvcrt availability is PER ARCH (Windows 2000 x86 has no VC-LTL tier, its
+	-- msvcrt.dll being too old) and use_vc_ltl simply skips an arch with no tier; the menu also doesn't offer
+	-- msvcrt for a 2000 target. So nothing OS-specific belongs here.
 	local o = _OPTIONS["use-msvcrt"]
 	return o == "on" or o == "release"
 end
@@ -174,27 +267,34 @@ function use_vc_ltl()
 	local cfg = msvcrt_config_filter()
 
 	for _, platform in ipairs(VC_LTL_PLATFORMS) do
-		local version = support_winxp() and platform.xp or platform.plain
+		-- An explicit --target-os picks the tier for its own floor, PER ARCH, and nil skips an arch with
+		-- no msvcrt (Windows 2000 x86 - its msvcrt.dll is too old, so that arch stays on the static CRT);
+		-- the legacy path keeps XP-or-Vista.
+		local info = os_info()
+		local version = (info and info[platform.arch].vcltl)
+			or (not info and (support_winxp() and platform.xp or platform.plain))
 
-		if not root or not os.isdir(root .. "/TargetPlatform/" .. version .. "/lib") then
-			error("VC-LTL5 is needed here. Set VC_LTL_Root to the extracted VC-LTL-Binary.7z "
-				.. "(https://github.com/Chuyu-Team/VC-LTL5/releases). Looked for "
-				.. "TargetPlatform/" .. version .. ".")
+		if version then
+			if not root or not os.isdir(root .. "/TargetPlatform/" .. version .. "/lib") then
+				error("VC-LTL5 is needed here. Set VC_LTL_Root to the extracted VC-LTL-Binary.7z "
+					.. "(https://github.com/Chuyu-Team/VC-LTL5/releases). Looked for "
+					.. "TargetPlatform/" .. version .. ".")
+			end
+
+			-- THE SEPARATOR IS OURS TO ADD, not something the variable has to carry. The check above
+			-- inserts one; emitting "$(VC_LTL_Root)TargetPlatform/" did not, so a value without a
+			-- trailing slash passed the check and then produced ...VC-LTL5TargetPlatform. Windows
+			-- takes a doubled separator perfectly happily - measured, C:\x\/y resolves the same as
+			-- C:\x\y - so one slash here is correct whichever way the variable is written.
+			local ltl = "$(VC_LTL_Root)/TargetPlatform/"
+
+			local terms = { "architecture:" .. platform.arch }
+			if cfg then table.insert(terms, cfg) end
+
+			filter (terms)
+				includedirs { ltl .. "header", ltl .. version .. "/header" }
+				libdirs { ltl .. version .. "/lib/" .. platform.lib }
 		end
-
-		-- THE SEPARATOR IS OURS TO ADD, not something the variable has to carry. The check above
-		-- inserts one; emitting "$(VC_LTL_Root)TargetPlatform/" did not, so a value without a
-		-- trailing slash passed the check and then produced ...VC-LTL5TargetPlatform. Windows
-		-- takes a doubled separator perfectly happily - measured, C:\x\/y resolves the same as
-		-- C:\x\y - so one slash here is correct whichever way the variable is written.
-		local ltl = "$(VC_LTL_Root)/TargetPlatform/"
-
-		local terms = { "architecture:" .. platform.arch }
-		if cfg then table.insert(terms, cfg) end
-
-		filter (terms)
-			includedirs { ltl .. "header", ltl .. version .. "/header" }
-			libdirs { ltl .. version .. "/lib/" .. platform.lib }
 	end
 
 	filter {}
@@ -227,7 +327,16 @@ end
 -- "$(YY_Thunks_Root)objs/..." and so quietly required the variable to end in a slash, which the
 -- check below does not require and nothing tells you. YY-Thunks has no such convention of its
 -- own - VC-LTL's documentation does, which is how the two came to differ.
-local YY_THUNKS_OBJ = "\"$(YY_Thunks_Root)/objs/$(PlatformShortName)/YY_Thunks_for_WinXP.obj\""
+-- PER ARCH: the obj's dir is x86 or x64, and its suffix follows --target-os for THAT arch - Windows 2000
+-- x64 uses XP's (WinXP), there being no 64-bit Windows 2000; 8.1 reuses Win8; the legacy path keeps WinXP.
+-- A function rather than one string, so the suffixes can differ by arch (they do only for 2000) and
+-- xp_no_thunks() rebuilds the SAME string, under the same arch filter, to remove it.
+local function yy_thunks_obj(arch)
+	local info = os_info()
+	local suffix = (info and info[arch].thunks) or "WinXP"
+	local dir = (arch == "x86_64") and "x64" or "x86"
+	return "\"$(YY_Thunks_Root)/objs/" .. dir .. "/YY_Thunks_for_" .. suffix .. ".obj\""
+end
 
 function use_yy_thunks()
 	if workspaceThunks then
@@ -236,15 +345,21 @@ function use_yy_thunks()
 
 	local root = os.getenv("YY_Thunks_Root")
 
-	for _, platform in ipairs({ "x86", "x64" }) do
-		if not root or not os.isfile(root .. "/objs/" .. platform .. "/YY_Thunks_for_WinXP.obj") then
+	for _, arch in ipairs({ "x86", "x86_64" }) do
+		local info = os_info()
+		local suffix = (info and info[arch].thunks) or "WinXP"
+		local dir = (arch == "x86_64") and "x64" or "x86"
+		if not root or not os.isfile(root .. "/objs/" .. dir .. "/YY_Thunks_for_" .. suffix .. ".obj") then
 			error("YY-Thunks is needed here. Set YY_Thunks_Root to the extracted "
 				.. "YY-Thunks-Objs.zip (https://github.com/Chuyu-Team/YY-Thunks/releases). "
-				.. "Looked for objs/" .. platform .. ".")
+				.. "Looked for objs/" .. dir .. "/YY_Thunks_for_" .. suffix .. ".obj.")
 		end
+
+		filter { "architecture:" .. arch }
+			linkoptions { yy_thunks_obj(arch) }
 	end
 
-	linkoptions { YY_THUNKS_OBJ }
+	filter {}
 
 	-- /OPT:REF EVEN IN DEBUG, which is not the usual advice and is needed here. The object holds a
 	-- thunk for around 1100 APIs, and some of them reach other DLLs directly rather than through
@@ -275,9 +390,18 @@ end
 --
 -- XP x64 reports itself as 5.2, as Server 2003 did - so the version follows the architecture,
 -- and a project naming 5.01 for both is wrong on one of them.
+-- Per arch, from --target-os (down for XP/2000, up for 8/8.1/10/11); the legacy path keeps XP's 5.01/5.02.
+local function subsystem_version(arch)
+	local info = os_info()
+	if info then
+		return info[arch].sub
+	end
+	return arch == "x86" and "5.01" or "5.02"
+end
+
 local SUBSYSTEM_VERSIONS = {
-	{ arch = "x86",    version = "5.01" },
-	{ arch = "x86_64", version = "5.02" },
+	{ arch = "x86",    version = subsystem_version("x86") },
+	{ arch = "x86_64", version = subsystem_version("x86_64") },
 }
 
 local SUBSYSTEMS = {
@@ -314,7 +438,13 @@ end
 -- Only the object is taken back out. /OPT:REF and the rest were added on its account but are
 -- harmless without it, and /OPT:REF in particular is still wanted.
 function xp_no_thunks()
-	removelinkoptions { YY_THUNKS_OBJ }
+	-- Per arch, matching how use_yy_thunks added it (the x86/x64 obj strings differ for Windows 2000).
+	for _, arch in ipairs({ "x86", "x86_64" }) do
+		filter { "architecture:" .. arch }
+			removelinkoptions { yy_thunks_obj(arch) }
+	end
+
+	filter {}
 end
 
 -- FOR A PROJECT THAT SETS ITS OWN TOOLSET, and so cannot be served by xp_workspace() - here,
@@ -342,9 +472,10 @@ function xp_workspace()
 		workspaceVCLTL = true
 	end
 
-	-- The Win32 APIs, a separate question from the CRT, so this follows support_winxp(). v141_xp
-	-- already answers for both and needs nothing added.
-	if not support_winxp() or using_xp_toolset() then
+	-- The Win32 APIs, a separate question from the CRT, applied when the target is downlevel: an explicit
+	-- --target-os of 2000..8.1, or - unchanged - the legacy support_winxp() (XP). v141_xp and a native
+	-- target (10/11, or support-winxp=off) answer for themselves and need nothing added.
+	if not needs_downlevel() then
 		filter {}
 		return
 	end
