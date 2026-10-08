@@ -13,7 +13,10 @@ DEPS := $(jdependencies_home)
 ifeq ($(strip $(DEPS)),)
   $(error jdependencies_home is not set - point it at the Dependencies sibling repo)
 endif
-DEPLIB := $(DEPS)/Lib/$(PLATFORM)
+# The config subfolder (Debug/Release, from common.mk's CONFIG_DIR) means a debug
+# consumer links the debug deps and a release consumer the release ones - the deps
+# are built per config, the same as the Windows Lib tree.
+DEPLIB := $(DEPS)/Lib/$(PLATFORM)/$(CONFIG_DIR)
 
 # Root include tree plus the two explicit subdirs j-dependencies.cmake adds.
 INCLUDES += -I$(DEPS)/include -I$(DEPS)/include/mongoose6 -I$(DEPS)/include/lua5.3

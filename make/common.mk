@@ -21,7 +21,8 @@
 #  Override SRCROOT / INCROOT before the first $(call ...) for a different layout.
 #
 #  Output layout:
-#    - static libraries -> $(LIBDIR)/lib<Name>_static.a  (flat, no _d suffix)
+#    - static libraries -> Lib/<platform>/<Debug|Release>/lib<Name>_static.a (no _d suffix;
+#      the config, not the name, separates the two - matching the Windows Lib tree)
 #    - tools            -> $(BINDIR)/<name>[_d]          (_d = debug)
 #      each tool stripped with its debug info split to <name>[_d].debug beside it
 #      (the Linux PDB equivalent), unless SYMBOLS=keep.
@@ -85,7 +86,17 @@ else
 endif
 
 # ---- output layout ---------------------------------------------------------
-LIBDIR  ?= Lib/$(PLATFORM)
+# CONFIG_DIR is the capitalised Debug/Release leaf, matching the Windows Lib tree
+# (Lib\<arch>\<toolset>_static\<Debug|Release>) and SpiderMonkey's own Lib layout, so
+# debug and release outputs never overwrite each other and a consumer links its
+# own config's libraries (see dependencies.mk / galactic.mk).
+ifeq ($(CONFIG),debug)
+  CONFIG_DIR := Debug
+else
+  CONFIG_DIR := Release
+endif
+
+LIBDIR  ?= Lib/$(PLATFORM)/$(CONFIG_DIR)
 BINDIR  ?= Bin/$(PLATFORM)
 OBJROOT ?= .jbuild/make/$(PLATFORM)/$(CONFIG)
 
@@ -261,7 +272,7 @@ endef
 # so LIB_TARGETS/TOOL_TARGETS/ALL_OBJS are complete.
 define finalize
 .DEFAULT_GOAL := all
-.PHONY: all libs tools debug release clean
+.PHONY: all libs tools debug release clean help
 
 all: libs tools
 libs: $$(LIB_TARGETS)
@@ -272,11 +283,18 @@ debug:
 release:
 	@$$(MAKE) --no-print-directory CONFIG=release all
 
-# Remove only this platform's Unix outputs - never a Windows Lib/<plat>/<toolset>/ tree.
+# Remove only this platform's Unix outputs (both config trees) - never a Windows
+# Lib/<plat>/<toolset>/ tree, so only the Debug/Release leaves are taken.
 clean:
-	rm -rf build/$$(PLATFORM)
-	rm -f  $$(LIBDIR)/*.a
+	rm -rf .jbuild/make/$$(PLATFORM)
+	rm -rf Lib/$$(PLATFORM)/Debug Lib/$$(PLATFORM)/Release
 	rm -rf $$(BINDIR)
+
+help:
+	@echo 'Targets: make [all] | debug | release | clean | help'
+	@echo 'Output : static libs -> Lib/<platform>/<Debug|Release>/lib<name>_static.a'
+	@echo '         tools       -> $$(BINDIR)/<name>[_d]'
+	@echo 'This run: PLATFORM=$$(PLATFORM)  CONFIG=$$(CONFIG)  ->  $$(LIBDIR)'
 
 -include $$(ALL_OBJS:.o=.d)
 endef

@@ -31,8 +31,10 @@ else
 endif
 
 # Where the Galactic_static + friends .a files are found. Installed tree by
-# default; Galactic's own Makefile points this at its in-tree $(LIBDIR).
-GALACTIC_LIBDIR ?= $(GALACTIC_HOME)/Lib/$(PLATFORM)
+# default; Galactic's own Makefile points this at its in-tree $(LIBDIR). The
+# Debug/Release subfolder (common.mk's CONFIG_DIR) keeps the two configs apart,
+# matching the Windows Lib tree, so a debug build links the debug engine libs.
+GALACTIC_LIBDIR ?= $(GALACTIC_HOME)/Lib/$(PLATFORM)/$(CONFIG_DIR)
 
 # Global defines from src/CMakeLists.txt (minus -DGALACTIC_PLATFORM_WINDOWS),
 # needed whenever engine headers are compiled against.
