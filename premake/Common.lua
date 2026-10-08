@@ -34,6 +34,64 @@ function common_options(defaultToolset)
 			{ "off", "SSE2, the compiler's own default" }
 		}
 	}
+
+	-- Which CPU architectures the generated solution contains: a comma-separated list of x86, x64,
+	-- arm, arm64 (or "all" for every one). FREE-FORM rather than premake's `allowed`, which validates
+	-- a value whole and cannot express a comma list - common_platforms() parses and checks it. Unset
+	-- means x86,x64, the pair every repo declared by hand before this option existed.
+	newoption {
+		trigger = "architecture",
+		value = "LIST",
+		description = "CPU architectures in the solution: a comma list of x86,x64,arm,arm64 (or all); default x86,x64"
+	}
+end
+
+-- The premake platform name for each architecture token, and the order the solution's platform
+-- dropdown always reads in regardless of how --architecture spelled the request.
+local PLATFORM_FOR_ARCH = {
+	x86   = "Win32",
+	x64   = "x64",
+	arm   = "ARM",
+	arm64 = "ARM64",
+}
+local ARCH_ORDER = { "x86", "x64", "arm", "arm64" }
+
+-- The platforms{} list the workspace is generated with, honouring --architecture (a comma list of
+-- x86,x64,arm,arm64, or "all"); unset = x86,x64, what every repo declared by hand before. The
+-- .sln-driven build menu then offers exactly what was generated, nothing more. A consumer calls this
+-- in place of a hardcoded `platforms { "Win32", "x64" }`, AFTER common_options() has declared the option.
+function common_platforms()
+	local option = _OPTIONS["architecture"]
+
+	if not option or option == "" then
+		return { "Win32", "x64" }
+	end
+
+	local wanted = {}
+	if option:lower() == "all" then
+		wanted = ARCH_ORDER
+	else
+		for token in option:gmatch("[^,]+") do
+			token = token:match("^%s*(.-)%s*$"):lower()
+			if not PLATFORM_FOR_ARCH[token] then
+				error("--architecture: unknown architecture '" .. token .. "' (want x86, x64, arm, arm64, a comma list, or all)")
+			end
+			table.insert(wanted, token)
+		end
+	end
+
+	-- Fixed order, de-duplicated, so "x64,x86" and "x86,x64" generate the one same solution.
+	local seen = {}
+	for _, token in ipairs(wanted) do seen[token] = true end
+
+	local platforms = {}
+	for _, token in ipairs(ARCH_ORDER) do
+		if seen[token] then table.insert(platforms, PLATFORM_FOR_ARCH[token]) end
+	end
+
+	if #platforms == 0 then error("--architecture: no architectures selected") end
+
+	return platforms
 end
 
 -- Entirely a question of the toolset: one ending _xp exists for no other reason, and
@@ -144,6 +202,15 @@ function common_workspace()
 		architecture "x86_64"
 		defines { "WIN64" }
 
+	-- ARM is generation-level: a solution can carry these platforms, but actually building them needs
+	-- the ARM toolchain and ARM-built dependencies installed. ARM64 is 64-bit (WIN64), ARM (32-bit) not.
+	filter { "platforms:ARM" }
+		architecture "ARM"
+
+	filter { "platforms:ARM64" }
+		architecture "ARM64"
+		defines { "WIN64" }
+
 	filter { "configurations:Debug" }
 		defines { "DEBUG=1", "_DEBUG" }
 		optimize "Off"
@@ -167,6 +234,18 @@ function common_workspace()
 
 	filter { "not configurations:Debug", "architecture:x86_64", "not kind:StaticLib" }
 		targetsuffix "_x64"
+
+	filter { "configurations:Debug", "architecture:ARM", "not kind:StaticLib" }
+		targetsuffix "_d_arm"
+
+	filter { "not configurations:Debug", "architecture:ARM", "not kind:StaticLib" }
+		targetsuffix "_arm"
+
+	filter { "configurations:Debug", "architecture:ARM64", "not kind:StaticLib" }
+		targetsuffix "_d_arm64"
+
+	filter { "not configurations:Debug", "architecture:ARM64", "not kind:StaticLib" }
+		targetsuffix "_arm64"
 
 	-- AND A DLL'S IMPORT LIBRARY KEEPS THE PLAIN NAME: Foo_d.dll ships with Foo.lib, so whatever
 	-- links against it writes one name whichever configuration it is built for - exactly how the

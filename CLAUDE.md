@@ -30,6 +30,19 @@ build, install, and link, across three generators that must stay in lockstep. Th
   `winxp-modern` preset (CMake `j-xp.cmake`) and `--support-winxp` (premake `XP.lua`), with subsystem 5.01
   (x86) / 5.02 (x64). `v141_xp` (VS2017 targets) still reaches XP the old way and is offered too; both produce
   equivalent output.
+- **`--target-os` (premake `XP.lua`) supersedes `--support-winxp`:** it names the OLDEST Windows the binaries
+  must run on — `win2000`/`winxp`/`vista`/`win7`/`win8`/`win81`/`win10`/`win11` — and sets the subsystem
+  version, YY-Thunks object, and VC-LTL tier PER ARCH from one table. Notably x64 has no floor below XP x64
+  (5.02), so a `win2000` x64 build targets XP x64; `win81` reuses the Win8 thunks. `--support-winxp=on` stays
+  as the equivalent of `--target-os=winxp` for back-compat. The XP machinery only ever touches x86/x86_64.
+
+## Architectures in the generated solution
+- **`--architecture` (premake `Common.lua`)** chooses which CPU platforms the `.sln` CONTAINS: a comma list of
+  `x86,x64,arm,arm64` (or `all`); unset = `x86,x64`, the pair repos declared by hand before. Consumers call
+  `common_platforms()` in place of a hardcoded `platforms { "Win32", "x64" }`. `Generate.ps1` offers it as a
+  multi-select menu and the `.sln`-driven build menu then lists exactly what was generated. ARM/ARM64 are
+  **generation-only** — building them needs the ARM toolchain and ARM-built dependencies installed; they get
+  no XP/VC-LTL/YY treatment (ARM Windows is Win10+). Their output is suffixed `_arm`/`_arm64` (`_d_*` in Debug).
 - This is the engine/tool side only. Producing the `mozjs-<NN>.dll` that those binaries load is a *separate*
   repo (SpiderMonkeyBuilder) with its own XP method and its own hard-won gotchas.
 

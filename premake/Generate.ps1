@@ -37,8 +37,12 @@ param(
 
     # Empty lets the build step choose (a prompt, or the solution's first platform); 'All' builds every
     # platform the generated solution offers.
-    [ValidateSet('', 'Win32', 'x64', 'All')]
+    [ValidateSet('', 'Win32', 'x64', 'ARM', 'ARM64', 'All')]
     [string] $Platform = '',
+
+    # Which CPU architectures the generated solution CONTAINS (distinct from -Platform, which picks what to
+    # build from it). A comma list of x86,x64,arm,arm64 or 'all'; empty = x86,x64, premake5.lua's own default.
+    [string] $Architecture = '',
 
     [string] $NoEnhancedInstructions = '',
 
@@ -121,6 +125,30 @@ if (-not $VisualStudio) {
                     if ($p -match '^\d+$' -and [int]$p -ge 1 -and [int]$p -le $esr.Count) { $SpiderMonkeyVersion = $esr[[int]$p - 1] }
                 }
             }
+            # Architecture(s) the solution CONTAINS. Multi-select: a list of numbers, or 'a' for all; Enter
+            # keeps premake5.lua's default (x86,x64). Offered only when the consumer's Common.lua declares it.
+            if (($declared -contains 'architecture') -and -not $Architecture) {
+                $archs = @(
+                    @{ k = 'x86';   n = 'x86    (Win32)' }
+                    @{ k = 'x64';   n = 'x64' }
+                    @{ k = 'arm';   n = 'ARM    (32-bit; legacy - needs the ARM toolchain + ARM-built deps)' }
+                    @{ k = 'arm64'; n = 'ARM64  (needs the ARM64 toolchain + ARM64-built deps)' }
+                )
+                Write-Host ''
+                Write-Host (Paint 'Architecture(s) in the solution?' '1;36')
+                for ($i = 0; $i -lt $archs.Count; $i++) { Write-Host ("  {0} {1}" -f (Paint ("[{0}]" -f ($i + 1)) '0;36'), $archs[$i].n) }
+                Write-Host ("  {0} All of them" -f (Paint '[a]' '0;36'))
+                $p = Read-Host "Pick one or more (e.g. 1,2), 'a' for all, or Enter for x86+x64 (the default)"
+                if ($p -match '^\s*[aA]') {
+                    $Architecture = 'all'
+                } elseif ($p -match '\d') {
+                    $picked = @()
+                    foreach ($tok in ($p -split '[,\s]+')) {
+                        if ($tok -match '^\d+$' -and [int]$tok -ge 1 -and [int]$tok -le $archs.Count) { $picked += $archs[[int]$tok - 1].k }
+                    }
+                    if ($picked.Count) { $Architecture = (($picked | Select-Object -Unique) -join ',') }
+                }
+            }
             # Target OS - the oldest Windows the output must run on. Supersedes --support-winxp; offered only
             # when the consumer's XP.lua declares --target-os.
             if (($declared -contains 'target-os') -and -not $TargetOs) {
@@ -165,6 +193,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $consumerPremake 'premake5.lua'))) {
 
 $arguments = @("vs$VisualStudio", "--toolset=$Toolset")
 if ($NoEnhancedInstructions) { $arguments += "--no-enhanced-instructions=$($NoEnhancedInstructions.ToLower())" }
+if ($Architecture)           { $arguments += "--architecture=$($Architecture.ToLower())" }
 if ($TargetOs)               { $arguments += "--target-os=$TargetOs" }
 if ($WarningLevel)           { $arguments += "--warning-level=$WarningLevel" }
 if ($SupportWinXP)           { $arguments += "--support-winxp=$($SupportWinXP.ToLower())" }
@@ -195,7 +224,12 @@ Write-Host "$(Tag 'solution' '0;36') $($solution.FullName)"
 $slnText = Get-Content -LiteralPath $solution.FullName -Raw
 $slnPairs = [regex]::Matches($slnText, '(?m)^\s*(\w+)\|(\w+)\s*=\s*\1\|\2\s*$')
 $slnConfigs   = @($slnPairs | ForEach-Object { $_.Groups[1].Value }) | Sort-Object -Unique
-$slnPlatforms = @($slnPairs | ForEach-Object { $_.Groups[2].Value }) | Sort-Object -Unique
+# Build-menu order, NOT alphabetical: x86 (Win32) is the standing default (index 0), then x64, then the ARM
+# platforms - so a solution that happens to contain ARM doesn't default to building the dead 32-bit ARM.
+# Anything a consumer names outside this list sorts alphabetically after the known four.
+$platOrder = @('Win32', 'x64', 'ARM', 'ARM64')
+$slnPlatforms = @($slnPairs | ForEach-Object { $_.Groups[2].Value } | Sort-Object -Unique |
+    Sort-Object @{ Expression = { $i = $platOrder.IndexOf($_); if ($i -lt 0) { 99 } else { $i } } }, @{ Expression = { $_ } })
 if (-not $slnConfigs)   { $slnConfigs   = @('Release') }
 if (-not $slnPlatforms) { $slnPlatforms = @('Win32') }
 
