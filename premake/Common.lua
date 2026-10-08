@@ -335,7 +335,9 @@ DEPENDENCY_CONFIG = "%{cfg.buildcfg == 'Debug' and 'Debug' or 'Release'}"
 -- CONSUMED by a later link rather than run. Laid out the way the installed dependency trees
 -- already are, Lib\<arch>\<toolset>_static\<Debug|Release>, rather than a second shape to learn.
 -- common_project() puts both there; see its own comments for why neither can sit in Bin\.
-LINK_LIBRARIES = "$(SolutionDir)Lib\\$(PlatformTarget)\\$(PlatformToolset)_static\\" .. DEPENDENCY_CONFIG
+-- $(SolutionDir).. is the REPO ROOT: the solution is generated into .jbuild\ (the gitignored build
+-- output), one level down, but Lib\ is a PRODUCT downstream trees link against and belongs at the root.
+LINK_LIBRARIES = "$(SolutionDir)..\\Lib\\$(PlatformTarget)\\$(PlatformToolset)_static\\" .. DEPENDENCY_CONFIG
 
 -- The same four names targetsuffix gives our own binaries, because the dependency tree is built
 -- by the same rules: SDL2_d.dll, SDL2_d_x64.dll, SDL2.dll, SDL2_x64.dll.

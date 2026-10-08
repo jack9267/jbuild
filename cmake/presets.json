@@ -41,7 +41,7 @@
         "value": "v143",
         "strategy": "set"
       },
-      "binaryDir": "${sourceDir}/jbuild/cmake/bat/CMake.tmp/Visual Studio 17 2022/Win32/v143_static"
+      "binaryDir": "${sourceDir}/.jbuild/CMake.tmp/Visual Studio 17 2022/Win32/v143_static"
     },
     {
       "name": "vs2022-x64",
@@ -57,7 +57,7 @@
         "value": "v143",
         "strategy": "set"
       },
-      "binaryDir": "${sourceDir}/jbuild/cmake/bat/CMake.tmp/Visual Studio 17 2022/x64/v143_static"
+      "binaryDir": "${sourceDir}/.jbuild/CMake.tmp/Visual Studio 17 2022/x64/v143_static"
     },
     {
       "name": "vs2019-win32",
@@ -73,7 +73,7 @@
         "value": "v142",
         "strategy": "set"
       },
-      "binaryDir": "${sourceDir}/jbuild/cmake/bat/CMake.tmp/Visual Studio 16 2019/Win32/v142_static"
+      "binaryDir": "${sourceDir}/.jbuild/CMake.tmp/Visual Studio 16 2019/Win32/v142_static"
     },
     {
       "name": "vs2019-x64",
@@ -89,7 +89,7 @@
         "value": "v142",
         "strategy": "set"
       },
-      "binaryDir": "${sourceDir}/jbuild/cmake/bat/CMake.tmp/Visual Studio 16 2019/x64/v142_static"
+      "binaryDir": "${sourceDir}/.jbuild/CMake.tmp/Visual Studio 16 2019/x64/v142_static"
     },
     {
       "name": "vs2019-xp-win32",
@@ -105,7 +105,7 @@
         "value": "v141_xp",
         "strategy": "set"
       },
-      "binaryDir": "${sourceDir}/jbuild/cmake/bat/CMake.tmp/Visual Studio 16 2019/Win32/v141_xp_static",
+      "binaryDir": "${sourceDir}/.jbuild/CMake.tmp/Visual Studio 16 2019/Win32/v141_xp_static",
       "cacheVariables": {
         "FORCE_STATIC_VCRT": "ON",
         "NO_ENHANCED_INSTRUCTIONS": "ON"
@@ -125,7 +125,7 @@
         "value": "v141_xp",
         "strategy": "set"
       },
-      "binaryDir": "${sourceDir}/jbuild/cmake/bat/CMake.tmp/Visual Studio 16 2019/x64/v141_xp_static"
+      "binaryDir": "${sourceDir}/.jbuild/CMake.tmp/Visual Studio 16 2019/x64/v141_xp_static"
     },
     {
       "name": "vs2017-xp-win32",
@@ -141,7 +141,7 @@
         "value": "v141_xp",
         "strategy": "set"
       },
-      "binaryDir": "${sourceDir}/jbuild/cmake/bat/CMake.tmp/Visual Studio 15 2017/Win32/v141_xp_static",
+      "binaryDir": "${sourceDir}/.jbuild/CMake.tmp/Visual Studio 15 2017/Win32/v141_xp_static",
       "cacheVariables": {
         "FORCE_STATIC_VCRT": "ON",
         "NO_ENHANCED_INSTRUCTIONS": "ON"
@@ -161,7 +161,7 @@
         "value": "v141_xp",
         "strategy": "set"
       },
-      "binaryDir": "${sourceDir}/jbuild/cmake/bat/CMake.tmp/Visual Studio 15 2017/x64/v141_xp_static"
+      "binaryDir": "${sourceDir}/.jbuild/CMake.tmp/Visual Studio 15 2017/x64/v141_xp_static"
     }
   ],
   "buildPresets": [

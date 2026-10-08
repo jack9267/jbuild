@@ -12,11 +12,26 @@ build, install, and link, across three generators that must stay in lockstep. Th
   generator silently misses it. (Worked example: the esr140 `/utf-8`+`XP_WIN` consumer flags belong in
   `cmake/j-spidermonkey.cmake`, the premake SpiderMonkey wiring, and `make/spidermonkey.mk` alike.)
 - `premake/premake5.exe` is deliberately **committed** — consumers run it directly, nothing to install.
-- `premake/Generate.ps1` is the **shared** premake driver: it maps friendly params to premake options, runs
-  premake against the CONSUMER's `premake5.lua` (via `-Root`), then **discovers** and optionally MSBuilds the
-  generated `.sln`. The solution NAME lives in each consumer's `workspace(...)`, never in the driver, so nothing
-  consumer-specific is hardcoded here. A consumer keeps a thin wrapper that calls this with its own root (or,
-  once jbuild is its submodule, invokes it directly). Generation alone is still just `premake5.exe vs2022`.
+- **`JBuild.ps1` (at the jbuild root) is the shared premake driver**: it maps friendly params to premake
+  options, runs premake (`premake/premake5.exe`) against the CONSUMER's `premake5.lua` (via `-Root`, which
+  defaults to jbuild's parent), then **discovers** and optionally MSBuilds the generated `.sln`. The solution
+  NAME lives in each consumer's `workspace(...)`, never in the driver, so nothing consumer-specific is hardcoded.
+- **`JBuild.cmd` (at the jbuild root) is the launcher** holding all the boilerplate (pick pwsh, run `JBuild.ps1`,
+  pause). A consumer keeps only a **one-line `JBuild.cmd` at its repo root**: `@call "%~dp0jbuild\JBuild.cmd" %*`
+  — so none of the launcher boilerplate is copied per repo. Generation alone is still just `premake5.exe vs2022`.
+- **`JBuild.ps1` is a build-system front-end.** It detects the system from the repo ROOT — `premake5.lua` →
+  premake, `CMakeLists.txt` → cmake — and, when both exist interactively, offers a choice (premake default).
+  The consumer's `premake5.lua` now lives at the **repo root** (not `premake/`). The cmake path (`Invoke-Cmake`)
+  mirrors the premake prompts WHERE cmake supports them — Visual Studio, architecture, XP toolset, XP support,
+  SpiderMonkey, runtime — maps them to one of the configure presets + `-D` overrides, runs `cmake --preset`, and
+  optionally builds. The premake-only knobs (`--crt` dynamic modes, the `--target-os` ladder, multi-arch) are
+  not offered there. **KNOWN: modern cmake (seen with 4.x) fails compiler detection when the build-dir path has
+  a space, and every preset's `binaryDir` contains "Visual Studio NN YYYY" — a pre-existing spaced-path issue,
+  not from the `.jbuild` move; de-spacing the generator segment (presets + bats together) is the fix if needed.**
+- **`.jbuild/` is the gitignored build-output folder** at each consumer's root, for all three systems: premake
+  `location ".jbuild"` (its `.sln`/`.vcxproj` + `$(SolutionDir)obj`), cmake preset `binaryDir`
+  `${sourceDir}/.jbuild/CMake.tmp/...` (and `bat/` writes there via `%SRC%\.jbuild`), and make `OBJROOT`
+  `.jbuild/make/...`. `JBuild.ps1` discovers the generated `.sln` in `.jbuild/` first, then the root.
 
 ## Conventions
 - **Never `git push`.** Commit when asked; report what's unpushed. (User always pushes.)
@@ -69,7 +84,7 @@ build, install, and link, across three generators that must stay in lockstep. Th
   msvcrt/static split, `off` = static both). `apply_dynamic_crt(mode, cfg)` sets `/MD` per config; VC-LTL is
   scoped by `msvcrt_config_filter()` (both / release-only / debug-only). Nothing about the proven static/msvcrt
   XP paths changes when `--crt` is unset.
-- **`Generate.ps1` shows a resolved-settings summary** before the `o`/Enter gate (toolset, SpiderMonkey,
+- **`JBuild.ps1` shows a resolved-settings summary** before the `o`/Enter gate (toolset, SpiderMonkey,
   architectures, target OS + subsystem, and the release/debug CRT), so Enter is an informed choice. It comes
   from premake itself via the read-only **`jbuild-summary`** action (ground truth, consumer defaults included),
   not a regex guess; silent if the consumer has no XP.lua.
@@ -81,7 +96,7 @@ build, install, and link, across three generators that must stay in lockstep. Th
 ## Architectures in the generated solution
 - **`--architecture` (premake `Common.lua`)** chooses which CPU platforms the `.sln` CONTAINS: a comma list of
   `x86,x64,arm,arm64` (or `all`); unset = `x86,x64`, the pair repos declared by hand before. Consumers call
-  `common_platforms()` in place of a hardcoded `platforms { "Win32", "x64" }`. `Generate.ps1` offers it as a
+  `common_platforms()` in place of a hardcoded `platforms { "Win32", "x64" }`. `JBuild.ps1` offers it as a
   multi-select menu and the `.sln`-driven build menu then lists exactly what was generated. ARM/ARM64 are
   **generation-only** — building them needs the ARM toolchain and ARM-built dependencies installed; they get
   no XP/VC-LTL/YY treatment (ARM Windows is Win10+). Their output is suffixed `_arm`/`_arm64` (`_d_*` in Debug).
@@ -106,3 +121,4 @@ build, install, and link, across three generators that must stay in lockstep. Th
   only `cmake --install` does. Downstream (a premake tool, a sample) links *that installed tree*, so skipping
   the install makes it silently link a **stale** library with no warning. Always install the engine after
   building it, before building anything that consumes it. (This has burned days — see Galactic's CLAUDE.md.)
+

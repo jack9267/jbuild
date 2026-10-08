@@ -139,7 +139,10 @@ if(MSVC)
 	endif()
 
 	if(MSVC_VERSION GREATER_EQUAL 1900 AND CMAKE_SIZEOF_VOID_P EQUAL 4)
-		option(NO_ENHANCED_INSTRUCTIONS "No Enhanced Instructions" OFF)
+		# Defaults to SUPPORT_WINXP (j-xp, included above): the pre-SSE2 CPUs that run XP need /arch:IA32,
+		# so this follows the XP decision just like premake's no_enhanced_instructions() returns support_winxp().
+		# An explicit -DNO_ENHANCED_INSTRUCTIONS still overrides. x86 only - SSE2 is baseline on x64.
+		option(NO_ENHANCED_INSTRUCTIONS "No Enhanced Instructions" ${SUPPORT_WINXP})
 		if(NO_ENHANCED_INSTRUCTIONS)
 			# No Enhanced Instructions
 			add_compiler_flags(/arch:IA32)

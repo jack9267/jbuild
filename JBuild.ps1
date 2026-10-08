@@ -4,8 +4,8 @@
     with -Build, builds it headlessly via MSBuild.
 
 .DESCRIPTION
-    The build is described by the CONSUMER's premake\premake5.lua; this script only maps friendly
-    parameters to premake options and runs the committed premake5.exe (co-located here), then locates
+    The build is described by the CONSUMER's premake5.lua at its repo root; this script only maps friendly
+    parameters to premake options and runs the committed premake5.exe (in jbuild\premake\), then locates
     the generated solution and hands it to MSBuild. It is generic: the solution NAME and location come
     from the consumer's premake `workspace` (location(rootPath)), never from this script - so the
     generated *.sln is DISCOVERED, not hardcoded.
@@ -14,15 +14,20 @@
     the parameter mapping and the optional non-interactive build (CI / no Visual Studio open).
 
 .PARAMETER Root
-    The consumer repo root - where premake\premake5.lua lives and where its `location(rootPath)` writes
-    the .sln. Defaults to this script's grandparent (correct when jbuild is a submodule at <consumer>\jbuild);
-    pass it explicitly for a sibling checkout.
+    The consumer repo root - where premake5.lua lives and where its `location(rootPath)` writes
+    the .sln. Defaults to this script's parent (correct when jbuild is a submodule at <consumer>\jbuild, with
+    this driver at the jbuild root); pass it explicitly for a sibling checkout.
 
 .PARAMETER Build
     Also build the generated solution with MSBuild after generating.
 #>
 param(
-    [string] $Root = (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent),
+    [string] $Root = (Split-Path $PSScriptRoot -Parent),
+
+    # Which build system to drive. Empty auto-detects (premake if the repo root has premake5.lua, cmake if it
+    # has CMakeLists.txt) and, when both exist interactively, offers a menu with premake as the default.
+    [ValidateSet('', 'premake', 'cmake')]
+    [string] $BuildSystem = '',
 
     # Empty offers an interactive menu (what a double-click with no args gets); a value skips it.
     [ValidateSet('', '2017', '2019', '2022')]
@@ -79,17 +84,12 @@ $script:Color = (-not $env:NO_COLOR) -and (-not [Console]::IsOutputRedirected)
 function Paint([string]$text, [string]$code) { if ($script:Color) { "$([char]27)[${code}m$text$([char]27)[0m" } else { $text } }
 function Tag([string]$name, [string]$code)   { Paint "[$name]" $code }
 
-# Resolved up front (independent of the menu) so the pre-generate summary below can run premake.
-$premake = Join-Path $PSScriptRoot 'premake5.exe'
-if (-not (Test-Path -LiteralPath $premake)) {
-    Write-Error "premake5.exe is missing from $PSScriptRoot - it is committed to jbuild; check the working tree is complete."
-    exit 1
-}
-$consumerPremake = Join-Path $Root 'premake'
-if (-not (Test-Path -LiteralPath (Join-Path $consumerPremake 'premake5.lua'))) {
-    Write-Error "No premake5.lua under '$consumerPremake'. Pass -Root <consumer repo root>."
-    exit 1
-}
+# This driver is at the jbuild root; premake5.exe and the shared .lua modules are in jbuild\premake\. The
+# consumer's own premake5.lua is at its repo root ($Root). Checked in the premake branch below (after the
+# build-system dispatch), so the cmake branch needs none of it.
+$jbuildPremake = Join-Path $PSScriptRoot 'premake'
+$premake = Join-Path $jbuildPremake 'premake5.exe'
+$consumerPremake = $Root
 
 # The premake option flags (everything except the vsNNNN action), from the params/menu choices. Shared by
 # the pre-generate summary and the real generation so the two can never disagree.
@@ -123,6 +123,161 @@ function Show-Summary {
     $body | ForEach-Object { Write-Host $_ }
 }
 
+# ----- cmake path -----
+# Mirror the premake prompts where cmake supports them (Visual Studio, architecture, XP toolset, XP
+# support, SpiderMonkey, runtime), map them to one of jbuild's configure presets plus -D overrides,
+# configure, and optionally build. The premake-only knobs (--crt dynamic modes, the --target-os ladder,
+# multi-arch) are not offered - cmake does one architecture per configure and has no equivalent.
+function Invoke-Cmake {
+    $cmake = Get-Command cmake -EA SilentlyContinue
+    if (-not $cmake) { Write-Error 'cmake is not on PATH.'; exit 1 }
+
+    $interactive = [Environment]::UserInteractive -and -not [Console]::IsInputRedirected
+    $vs = $VisualStudio
+    $arch = if ($Architecture -match 'x64|x86_64') { 'x64' } elseif ($Architecture -match 'x86|win32|Win32') { 'Win32' } else { '' }
+    $xpToolset = $false
+
+    if ($interactive) {
+        if (-not $vs) {
+            $vers = @('2022', '2019', '2017')
+            Write-Host ''
+            Write-Host (Paint 'Generate for which Visual Studio?' '1;36')
+            for ($i = 0; $i -lt $vers.Count; $i++) { Write-Host ("  {0} Visual Studio {1}{2}" -f (Paint ("[{0}]" -f ($i + 1)) '0;36'), $vers[$i], $(if ($i -eq 0) { Paint '  (default)' '0;32' } else { '' })) }
+            $p = Read-Host 'Enter 1-3 (or Enter for the default)'
+            $vs = if ($p -match '^[1-3]$') { $vers[[int]$p - 1] } else { $vers[0] }
+        }
+        if (-not $arch) {
+            Write-Host ''
+            Write-Host (Paint 'Architecture?' '1;36')
+            Write-Host ("  {0} Win32 (x86){1}" -f (Paint '[1]' '0;36'), (Paint '  (default)' '0;32'))
+            Write-Host ("  {0} x64" -f (Paint '[2]' '0;36'))
+            $p = Read-Host 'Enter 1-2 (or Enter for Win32)'
+            $arch = if ($p -eq '2') { 'x64' } else { 'Win32' }
+        }
+        # 2017 is XP-only; 2019 offers modern (v142) or XP (v141_xp); 2022 is v143 (XP via SUPPORT_WINXP).
+        if ($vs -eq '2017') { $xpToolset = $true }
+        elseif ($vs -eq '2019') {
+            Write-Host ''
+            Write-Host (Paint 'Toolset?' '1;36')
+            Write-Host ("  {0} v142 - modern (reaches XP via VC-LTL5 + YY-Thunks){1}" -f (Paint '[1]' '0;36'), (Paint '  (default)' '0;32'))
+            Write-Host ("  {0} v141_xp - the XP toolset" -f (Paint '[2]' '0;36'))
+            $p = Read-Host 'Enter 1-2 (or Enter for v142)'
+            $xpToolset = ($p -eq '2')
+        }
+    }
+    else {
+        if (-not $vs) { $vs = '2022' }
+        if (-not $arch) { $arch = 'Win32' }
+        if ($vs -eq '2017') { $xpToolset = $true }
+    }
+
+    $preset = "vs$vs" + $(if ($xpToolset) { '-xp' } else { '' }) + '-' + $arch.ToLower()
+
+    # -D overrides mirroring the remaining premake prompts.
+    $defs = @()
+
+    # SpiderMonkey - only if the consumer's build references it.
+    $sm = $SpiderMonkeyVersion
+    $usesSm = Select-String -Path (Join-Path $Root 'CMakeLists.txt') -Pattern 'SPIDERMONKEY_VERSION|j-spidermonkey' -Quiet -EA SilentlyContinue
+    if ($interactive -and $usesSm -and -not $sm -and $env:jspidermonkey_home -and (Test-Path -LiteralPath $env:jspidermonkey_home)) {
+        $esr = @(Get-ChildItem -LiteralPath $env:jspidermonkey_home -Directory -Filter 'esr*' -EA SilentlyContinue |
+            ForEach-Object { $_.Name -replace '^esr', '' } | Where-Object { $_ -match '^\d+$' }) | Sort-Object { [int]$_ }
+        if ($esr) {
+            Write-Host ''
+            Write-Host (Paint "SpiderMonkey ESR (installed under $env:jspidermonkey_home):" '1;36')
+            for ($i = 0; $i -lt $esr.Count; $i++) { Write-Host ("  {0} esr{1}" -f (Paint ("[{0}]" -f ($i + 1)) '0;36'), $esr[$i]) }
+            $p = Read-Host "Enter 1-$($esr.Count) (or Enter to keep the default)"
+            if ($p -match '^\d+$' -and [int]$p -ge 1 -and [int]$p -le $esr.Count) { $sm = $esr[[int]$p - 1] }
+        }
+    }
+    if ($sm) { $defs += "-DSPIDERMONKEY_VERSION=$sm" }
+
+    # XP support - only meaningful for a modern toolset (the _xp presets are XP by definition). NO_ENHANCED_
+    # INSTRUCTIONS follows it in the cmake script itself, so it is not a separate prompt.
+    if (-not $xpToolset) {
+        if ($interactive) {
+            $p = Read-Host "`nWindows XP support?  [Enter] yes (default) / n no"
+            if ($p -match '^[nN]') { $defs += '-DSUPPORT_WINXP=OFF' }
+        }
+        elseif ($SupportWinXP -eq 'Off') { $defs += '-DSUPPORT_WINXP=OFF' }
+    }
+
+    # Runtime - static UCRT (default) or msvcrt.dll via VC-LTL5. cmake has no dynamic / app-local UCRT equivalent.
+    if ($interactive) {
+        $p = Read-Host "`nCRT?  [Enter] static UCRT (default) / 1 msvcrt (VC-LTL5)"
+        if ($p -eq '1') { $defs += '-DUSE_MSVCRT=ON' }
+    }
+    elseif ($UseMsvcrt -eq 'On' -or $Crt -eq 'msvcrt') { $defs += '-DUSE_MSVCRT=ON' }
+
+    Write-Host "$(Tag 'cmake' '0;36') $(& $cmake.Source --version | Select-Object -First 1)"
+    Write-Host "$(Tag 'configure' '0;32') preset $preset $($defs -join ' ')"
+
+    Push-Location $Root
+    try {
+        & $cmake.Source --preset $preset @defs
+        if ($LASTEXITCODE -ne 0) { Write-Error 'cmake configure failed.'; exit $LASTEXITCODE }
+    }
+    finally { Pop-Location }
+
+    # The build dir from the chosen preset (jbuild/cmake/presets.json), with ${sourceDir} -> $Root.
+    $binDir = $null
+    try {
+        $pj = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'cmake\presets.json') -Raw | ConvertFrom-Json
+        $bd = ($pj.configurePresets | Where-Object { $_.name -eq $preset }).binaryDir
+        if ($bd) { $binDir = $bd -replace '\$\{sourceDir\}', ($Root -replace '\\', '/') }
+    }
+    catch { }
+    Write-Host "$(Tag 'solution' '0;36') configured$(if ($binDir) { " -> $binDir" })"
+
+    # ---- optional build ----
+    if (-not $Build -and -not $interactive) { return }
+    $cfg = $Configuration
+    if (-not $cfg) {
+        if (-not $interactive) { return }
+        $p = Read-Host "`nBuild now?  [Enter] skip / 1 Debug / 2 Release / 3 both"
+        switch ($p) { '1' { $cfg = 'Debug' } '2' { $cfg = 'Release' } '3' { $cfg = 'both' } default { return } }
+    }
+    if (-not $binDir) { Write-Error 'Could not resolve the preset build directory.'; exit 1 }
+    foreach ($c in $(if ($cfg -eq 'both') { @('Debug', 'Release') } else { @($cfg) })) {
+        Write-Host "$(Tag 'build' '1;34') $preset $c"
+        & $cmake.Source --build $binDir --config $c
+        if ($LASTEXITCODE -ne 0) { Write-Error "cmake build ($c) failed."; exit $LASTEXITCODE }
+    }
+}
+
+# ----- which build system -----
+# Detected from the repo root: premake if premake5.lua is there, cmake if CMakeLists.txt is. When both
+# exist and we're interactive, offer a choice with premake as the default; otherwise take the only one.
+$hasPremake = Test-Path -LiteralPath (Join-Path $Root 'premake5.lua')
+$hasCmake   = Test-Path -LiteralPath (Join-Path $Root 'CMakeLists.txt')
+
+if (-not $BuildSystem) {
+    if ($hasPremake -and $hasCmake -and [Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
+        Write-Host ''
+        Write-Host (Paint 'Build system?' '1;36')
+        Write-Host ("  {0} premake  (generate a Visual Studio solution){1}" -f (Paint '[1]' '0;36'), (Paint '  (default)' '0;32'))
+        Write-Host ("  {0} cmake    (configure with CMake presets)" -f (Paint '[2]' '0;36'))
+        $p = Read-Host 'Enter 1-2 (or Enter for premake)'
+        $BuildSystem = if ($p -eq '2') { 'cmake' } else { 'premake' }
+    }
+    elseif ($hasPremake) { $BuildSystem = 'premake' }
+    elseif ($hasCmake)   { $BuildSystem = 'cmake' }
+    else { Write-Error "No premake5.lua or CMakeLists.txt at '$Root'. Pass -Root <consumer repo root>."; exit 1 }
+}
+
+if ($BuildSystem -eq 'cmake') {
+    if (-not $hasCmake) { Write-Error "Build system 'cmake' chosen, but no CMakeLists.txt at '$Root'."; exit 1 }
+    Invoke-Cmake
+    exit 0
+}
+
+# ----- premake path -----
+if (-not (Test-Path -LiteralPath $premake)) {
+    Write-Error "premake5.exe is missing from $jbuildPremake - it is committed to jbuild; check the working tree is complete."
+    exit 1
+}
+if (-not $hasPremake) { Write-Error "Build system 'premake' chosen, but no premake5.lua at '$Root'."; exit 1 }
+
 # No VS version chosen (e.g. a double-click with no args): offer a menu. In a non-interactive context
 # (piped / CI, where stdin is redirected) fall back to the newest so a prompt never hangs the run.
 if (-not $VisualStudio) {
@@ -148,12 +303,12 @@ if (-not $VisualStudio) {
         Write-Host "Press 'o' to set options, or Enter to generate now " -NoNewline
         $gate = [Console]::ReadKey($true); Write-Host ''
         if ($gate.KeyChar -eq 'o' -or $gate.KeyChar -eq 'O') {
-            # Scan the consumer's premake dir AND this driver's own dir ($PSScriptRoot) - the shared jbuild
-            # modules (XP.lua / Common.lua, which declare support-winxp / use-msvcrt) live beside the driver,
-            # so options moved into the jbuild submodule are still discovered.
+            # Scan the consumer's premake dir AND jbuild's own premake dir - the shared jbuild modules
+            # (XP.lua / Common.lua, which declare support-winxp / use-msvcrt / crt / ...) live there, so
+            # options defined in the jbuild submodule are still discovered.
             $declared = @(
-                (@(Get-ChildItem (Join-Path $Root 'premake') -Recurse -Filter *.lua -EA SilentlyContinue) +
-                 @(Get-ChildItem $PSScriptRoot -Filter *.lua -EA SilentlyContinue)) |
+                (@(Get-ChildItem $Root -Filter *.lua -EA SilentlyContinue) +
+                 @(Get-ChildItem $jbuildPremake -Filter *.lua -EA SilentlyContinue)) |
                 Select-String -Pattern 'trigger\s*=\s*"([^"]+)"' -AllMatches |
                 ForEach-Object { $_.Matches } | ForEach-Object { $_.Groups[1].Value }) | Sort-Object -Unique
 
@@ -166,7 +321,7 @@ if (-not $VisualStudio) {
                 if ($esr) {
                     # mark the consumer's own declared default (premake5.lua's spidermonkey-version default)
                     $smDefault = $null
-                    $pml = Join-Path $Root 'premake\premake5.lua'
+                    $pml = Join-Path $Root 'premake5.lua'
                     if ((Test-Path -LiteralPath $pml) -and
                         ((Get-Content -LiteralPath $pml -Raw) -match '(?s)spidermonkey-version.*?default\s*=\s*"(\d+)"')) { $smDefault = $Matches[1] }
                     Write-Host ''
@@ -271,9 +426,12 @@ try {
     Pop-Location
 }
 
-# DISCOVER the generated solution - its name is the premake workspace's, written to location(rootPath).
-$solution = Get-ChildItem -LiteralPath $Root -Filter *.sln -File | Select-Object -First 1
-if (-not $solution) { Write-Error "premake generated no .sln under '$Root'."; exit 1 }
+# DISCOVER the generated solution - its name is the premake workspace's, written to location(). The
+# convention is location ".jbuild" (gitignored build output), so look there first, then the repo root.
+$solution = @(
+    @(Get-ChildItem -LiteralPath (Join-Path $Root '.jbuild') -Filter *.sln -File -EA SilentlyContinue) +
+    @(Get-ChildItem -LiteralPath $Root -Filter *.sln -File -EA SilentlyContinue)) | Select-Object -First 1
+if (-not $solution) { Write-Error "premake generated no .sln under '$Root' (or its .jbuild\)."; exit 1 }
 Write-Host "$(Tag 'solution' '0;36') $($solution.FullName)"
 
 # ---- optional build ----

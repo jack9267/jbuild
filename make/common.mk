@@ -87,7 +87,7 @@ endif
 # ---- output layout ---------------------------------------------------------
 LIBDIR  ?= Lib/$(PLATFORM)
 BINDIR  ?= Bin/$(PLATFORM)
-OBJROOT ?= build/$(PLATFORM)/$(CONFIG)
+OBJROOT ?= .jbuild/make/$(PLATFORM)/$(CONFIG)
 
 ifeq ($(CONFIG),debug)
   DBG_POSTFIX := _d
