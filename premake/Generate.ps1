@@ -55,6 +55,12 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Colorized output in the style of the makefiles' CMake-like tags (make/common.mk: green [CXX], cyan [AR],
+# bold-blue [LINK]). Dropped when NO_COLOR is set or the output is redirected (CI logs / dumb terminals).
+$script:Color = (-not $env:NO_COLOR) -and (-not [Console]::IsOutputRedirected)
+function Paint([string]$text, [string]$code) { if ($script:Color) { "$([char]27)[${code}m$text$([char]27)[0m" } else { $text } }
+function Tag([string]$name, [string]$code)   { Paint "[$name]" $code }
+
 # No VS version chosen (e.g. a double-click with no args): offer a menu. In a non-interactive context
 # (piped / CI, where stdin is redirected) fall back to the newest so a prompt never hangs the run.
 if (-not $VisualStudio) {
@@ -62,9 +68,9 @@ if (-not $VisualStudio) {
     if ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
         # --- Visual Studio version ---
         Write-Host ''
-        Write-Host 'Generate for which Visual Studio?'
+        Write-Host (Paint 'Generate for which Visual Studio?' '1;36')
         for ($i = 0; $i -lt $versions.Count; $i++) {
-            Write-Host ("  [{0}] Visual Studio {1}{2}" -f ($i + 1), $versions[$i], $(if ($i -eq 0) { '  (default)' } else { '' }))
+            Write-Host ("  {0} Visual Studio {1}{2}" -f (Paint ("[{0}]" -f ($i + 1)) '0;36'), $versions[$i], $(if ($i -eq 0) { Paint '  (default)' '0;32' } else { '' }))
         }
         $pick = Read-Host 'Enter 1-3 (or press Enter for the default)'
         if ([string]::IsNullOrWhiteSpace($pick)) { $VisualStudio = $versions[0] }
@@ -87,8 +93,9 @@ if (-not $VisualStudio) {
                     ForEach-Object { $_.Name -replace '^esr', '' } | Where-Object { $_ -match '^\d+$' }) |
                     Sort-Object { [int]$_ }
                 if ($esr) {
-                    Write-Host "`nSpiderMonkey ESR (installed under $env:jspidermonkey_home):"
-                    for ($i = 0; $i -lt $esr.Count; $i++) { Write-Host ("  [{0}] esr{1}" -f ($i + 1), $esr[$i]) }
+                    Write-Host ''
+                    Write-Host (Paint "SpiderMonkey ESR (installed under $env:jspidermonkey_home):" '1;36')
+                    for ($i = 0; $i -lt $esr.Count; $i++) { Write-Host ("  {0} esr{1}" -f (Paint ("[{0}]" -f ($i + 1)) '0;36'), $esr[$i]) }
                     $p = Read-Host "Enter 1-$($esr.Count) (or Enter to keep premake5.lua's default)"
                     if ($p -match '^\d+$' -and [int]$p -ge 1 -and [int]$p -le $esr.Count) { $SpiderMonkeyVersion = $esr[[int]$p - 1] }
                 }
@@ -130,8 +137,8 @@ if ($YYThunksTLS)            { $arguments += "--yy-thunks-tls=$($YYThunksTLS.ToL
 if ($SpiderMonkeyVersion)    { $arguments += "--spidermonkey-version=$SpiderMonkeyVersion" }
 
 $xp = if ($SupportWinXP) { $SupportWinXP -eq 'On' } else { $true }
-Write-Host "premake    $(& $premake --version)"
-Write-Host "generating vs$VisualStudio ($Toolset, $(if ($xp) {'Windows XP and later'} else {'Windows 10 and later'}))"
+Write-Host "$(Tag 'premake' '0;36') $(& $premake --version)"
+Write-Host "$(Tag 'generate' '0;32') vs$VisualStudio ($Toolset, $(if ($xp) {'Windows XP and later'} else {'Windows 10 and later'}))"
 
 Push-Location $consumerPremake
 try {
@@ -144,7 +151,7 @@ try {
 # DISCOVER the generated solution - its name is the premake workspace's, written to location(rootPath).
 $solution = Get-ChildItem -LiteralPath $Root -Filter *.sln -File | Select-Object -First 1
 if (-not $solution) { Write-Error "premake generated no .sln under '$Root'."; exit 1 }
-Write-Host "solution   $($solution.FullName)"
+Write-Host "$(Tag 'solution' '0;36') $($solution.FullName)"
 
 # ---- optional build ----
 # The configurations and platforms come from the generated solution itself (ground truth for what's
@@ -161,8 +168,9 @@ $interactive = [Environment]::UserInteractive -and -not [Console]::IsInputRedire
 # Whether to build. Not asked for unless interactive; -Build (or picking a configuration below) opts in.
 if (-not $Build) {
     if (-not $interactive) { exit 0 }   # generation only
-    Write-Host "`nBuild now? Pick a configuration, or press Enter to just generate and open it yourself:"
-    for ($i = 0; $i -lt $slnConfigs.Count; $i++) { Write-Host ("  [{0}] {1}" -f ($i + 1), $slnConfigs[$i]) }
+    Write-Host ''
+    Write-Host (Paint 'Build now? Pick a configuration, or press Enter to just generate and open it yourself:' '1;36')
+    for ($i = 0; $i -lt $slnConfigs.Count; $i++) { Write-Host ("  {0} {1}" -f (Paint ("[{0}]" -f ($i + 1)) '0;36'), $slnConfigs[$i]) }
     $p = Read-Host "Enter 1-$($slnConfigs.Count) to build (or Enter to skip)"
     if ([string]::IsNullOrWhiteSpace($p)) { exit 0 }
     elseif ($p -match '^\d+$' -and [int]$p -ge 1 -and [int]$p -le $slnConfigs.Count) { $Build = $true; $Configuration = $slnConfigs[[int]$p - 1] }
@@ -178,10 +186,11 @@ elseif ($slnConfigs -notcontains $Configuration) {
 # Resolve the platform: a value, or interactively from the solution's own platforms (+ All when >1).
 if (-not $Platform) {
     if ($interactive) {
-        Write-Host "`nBuild which platform?"
-        for ($i = 0; $i -lt $slnPlatforms.Count; $i++) { Write-Host ("  [{0}] {1}{2}" -f ($i + 1), $slnPlatforms[$i], $(if ($i -eq 0) { '  (default)' } else { '' })) }
+        Write-Host ''
+        Write-Host (Paint 'Build which platform?' '1;36')
+        for ($i = 0; $i -lt $slnPlatforms.Count; $i++) { Write-Host ("  {0} {1}{2}" -f (Paint ("[{0}]" -f ($i + 1)) '0;36'), $slnPlatforms[$i], $(if ($i -eq 0) { Paint '  (default)' '0;32' } else { '' })) }
         $allIdx = $slnPlatforms.Count + 1
-        if ($slnPlatforms.Count -gt 1) { Write-Host ("  [{0}] All ({1})" -f $allIdx, ($slnPlatforms -join ' + ')) }
+        if ($slnPlatforms.Count -gt 1) { Write-Host ("  {0} All ({1})" -f (Paint ("[{0}]" -f $allIdx) '0;36'), ($slnPlatforms -join ' + ')) }
         $p = Read-Host 'Enter a number (or Enter for the default)'
         if ([string]::IsNullOrWhiteSpace($p)) { $Platform = $slnPlatforms[0] }
         elseif ($p -match '^\d+$' -and [int]$p -ge 1 -and [int]$p -le $slnPlatforms.Count) { $Platform = $slnPlatforms[[int]$p - 1] }
@@ -207,7 +216,7 @@ foreach ($plat in $targets) {
         continue
     }
     Write-Host ''
-    Write-Host "building   $Configuration / $plat"
+    Write-Host "$(Tag 'build' '1;34') $Configuration / $plat"
     Write-Host ''
     & $msbuild $solution.FullName "/p:Configuration=$Configuration" "/p:Platform=$plat" /v:minimal /nologo /m
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
