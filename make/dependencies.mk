@@ -23,7 +23,11 @@ INCLUDES += -I$(DEPS)/include -I$(DEPS)/include/mongoose6 -I$(DEPS)/include/lua5
 
 # SDL2 headers - the engine includes <SDL_scancode.h> etc. directly. sdl2-config
 # finds the active install (source build in /usr/local, or the system package).
+# Not when cross-compiling for Android: those would be the build machine's headers. There the
+# Dependencies include tree carries SDL's headers itself.
+ifneq ($(PLATFORM),android)
 INCLUDES += $(shell sdl2-config --cflags 2>/dev/null || pkg-config --cflags sdl2 2>/dev/null)
+endif
 
 # Raspberry Pi VideoCore (ARM) - only if present.
 ifneq ($(wildcard /opt/vc/include/bcm_host.h),)

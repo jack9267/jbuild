@@ -51,10 +51,51 @@ INCROOT ?= include
 #   make TARGET=ios             arm64 device
 #   make TARGET=ios-sim         arm64 + x86_64 simulator
 #   APPLE_ARCHS="arm64" ...      override the architecture list
+#
+# TARGET=android cross-compiles with the Android NDK (ANDROID_NDK, or the usual ANDROID_NDK_HOME),
+# from a macOS or Linux host, for one ABI (arm64-v8a unless ANDROID_ABI says otherwise) and the
+# API level in ANDROID_API. Output goes to Lib/android, like any other platform.
 HOST_OS := $(shell uname -s)
 TARGET  ?= native
 
-ifeq ($(HOST_OS),Darwin)
+ifeq ($(TARGET),android)
+  ANDROID_NDK ?= $(ANDROID_NDK_HOME)
+  ifeq ($(strip $(ANDROID_NDK)),)
+    $(error TARGET=android needs ANDROID_NDK (or ANDROID_NDK_HOME) pointing at an Android NDK)
+  endif
+  ANDROID_API ?= 24
+  ANDROID_ABI ?= arm64-v8a
+  ifeq ($(ANDROID_ABI),arm64-v8a)
+    ANDROID_TRIPLE := aarch64-linux-android
+  else ifeq ($(ANDROID_ABI),x86_64)
+    ANDROID_TRIPLE := x86_64-linux-android
+  else ifeq ($(ANDROID_ABI),armeabi-v7a)
+    ANDROID_TRIPLE := armv7a-linux-androideabi
+  else
+    $(error ANDROID_ABI=$(ANDROID_ABI) is not one of arm64-v8a, x86_64, armeabi-v7a)
+  endif
+  # The NDK's one toolchain is named for the machine it runs on; Apple silicon runs the x86_64 one.
+  ifeq ($(HOST_OS),Darwin)
+    ANDROID_NDK_HOST := darwin-x86_64
+  else
+    ANDROID_NDK_HOST := linux-x86_64
+  endif
+  ANDROID_TOOLCHAIN := $(ANDROID_NDK)/toolchains/llvm/prebuilt/$(ANDROID_NDK_HOST)
+  CC      := $(ANDROID_TOOLCHAIN)/bin/clang --target=$(ANDROID_TRIPLE)$(ANDROID_API)
+  CXX     := $(ANDROID_TOOLCHAIN)/bin/clang++ --target=$(ANDROID_TRIPLE)$(ANDROID_API)
+  AR      := $(ANDROID_TOOLCHAIN)/bin/llvm-ar
+  OBJCOPY := $(ANDROID_TOOLCHAIN)/bin/llvm-objcopy
+  STRIP   := $(ANDROID_TOOLCHAIN)/bin/llvm-strip
+  # Everything below, and every Makefile built on this one, asks HOST_OS what it is building FOR
+  # (Darwin: Objective-C++ sources, frameworks, dsymutil). Android is none of that - it takes the
+  # generic Unix branches - so for this target it is named as such whatever machine is compiling.
+  HOST_OS := Android
+endif
+
+ifeq ($(TARGET),android)
+  PLATFORM    := android
+  APPLE_FLAGS :=
+else ifeq ($(HOST_OS),Darwin)
   ifeq ($(TARGET),ios)
     PLATFORM     := ios
     APPLE_SDK    := iphoneos
