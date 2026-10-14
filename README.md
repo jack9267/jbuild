@@ -48,7 +48,7 @@ consuming repo's root (the repo is the working directory, e.g. `jbuild\cmake\bat
   `CMAKE_GENERATOR*` / `CMAKE_EXTRA_ARGS` the caller set. The build scratch lives inside jbuild
   (`jbuild\cmake\bat\CMake.tmp\<generator>\<platform>\<toolset>_static\`), while the source and the
   install prefix are the repo root (the working directory the launcher was run from).
-- `VS2017*/VS2019*/VS2022*.bat` and `Configure_VS*.bat` - one per toolset/arch: set the generator
+- `VS2017*/VS2022*.bat` and `Configure_VS*.bat` - one per toolset/arch: set the generator
   matrix + args, then call the matching engine. Non-XP toolsets (v141/v142/v143) build XP-compatible
   via `-DSUPPORT_WINXP=ON` + YY-Thunks (expects a `YY-Thunks` folder beside the repo); the native XP
   toolset (`v141_xp`) uses `-DNO_ENHANCED_INSTRUCTIONS=ON` on Win32 instead.

@@ -13,7 +13,7 @@ else()
 	set(USING_XP_TOOLSET false)
 endif()
 
-# Defaults to the old derived value, so the vs2017-xp/vs2019-xp presets are unchanged.
+# Defaults to the old derived value, so the vs2017-xp presets are unchanged.
 option(SUPPORT_WINXP "Produce binaries that run on Windows XP" ${USING_XP_TOOLSET})
 
 # Separate from SUPPORT_WINXP since it swaps every binary's CRT. Useful off XP too: nothing to
