@@ -9,6 +9,9 @@
 -- targetdir, which projects exist. Dependency trees are Dependencies.lua's, the engine Galactic.lua's,
 -- warnings Warnings.lua's. See CLAUDE.md.
 
+-- The Makefile fragment action (premake5 --os=<target> jbuildmake).
+include "Make.lua"
+
 -- v141_xp targets Windows XP and later but is not in VS2022; it comes from VS2017's targets, and MSBuild
 -- reports MSB8020 without it. v143 targets Windows 10 and later.
 function common_options(defaultToolset)

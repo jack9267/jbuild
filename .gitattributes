@@ -10,6 +10,9 @@
 Makefile text eol=lf
 makefile text eol=lf
 
+# So are shell scripts: a CR breaks sh.
+*.sh   text eol=lf
+
 # Binary: premake itself (and any libs/dlls that ever land here).
 *.exe binary
 *.lib binary

@@ -615,6 +615,12 @@ local function apply_dynamic_crt(mode, cfg)
 end
 
 function xp_workspace()
+	-- All of it is about a Windows binary; generating for another target (--os, jbuildmake) needs none,
+	-- and must not ask for VC-LTL or YY-Thunks on a machine that has neither.
+	if os.target() ~= "windows" then
+		return
+	end
+
 	-- CRT FIRST, and PER CONFIG. The dynamic (/MD) modes are independent of the XP downlevel machinery, so
 	-- must be applied even when needs_downlevel() is false (a plain win10 target) - i.e. before the early
 	-- return below. VC-LTL (msvcrt) goes first so its workspace-scope staticruntime "On" is in place before
