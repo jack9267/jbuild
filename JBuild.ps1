@@ -530,7 +530,9 @@ if (-not (Test-Path -LiteralPath $vswhere)) {
 # Every installation is considered, the one generated for (by version) first, and one counts only if its MSBuild
 # has $Toolset under VC\v*\Platforms\*\PlatformToolsets - the folder MSBuild itself looks in.
 $vsRanges = @{ '2017' = 15; '2019' = 16; '2022' = 17 }
-$instances = @(& $vswhere -all -products * -requires Microsoft.Component.MSBuild -format json | ConvertFrom-Json)
+# Out-String: vswhere's lines as one JSON text. ForEach-Object: Windows PowerShell 5.1's ConvertFrom-Json passes a
+# JSON array on as ONE object (7 unrolls it), which then sorted as an array and failed to cast to [version].
+$instances = @(& $vswhere -all -products * -requires Microsoft.Component.MSBuild -format json | Out-String | ConvertFrom-Json | ForEach-Object { $_ })
 $hasToolset = { param($i) [bool](Get-ChildItem -Path (Join-Path $i.installationPath "MSBuild\Microsoft\VC\v*\Platforms\*\PlatformToolsets\$Toolset") -Directory -EA SilentlyContinue) }
 $wanted = $vsRanges["$VisualStudio"]
 $chosen = @($instances | Where-Object { & $hasToolset $_ } |
