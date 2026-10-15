@@ -24,6 +24,14 @@ do
 	end
 end
 
+-- makecondition "ifeq ($(JS),1)": the project is built only when the Makefile's condition holds - an
+-- option of make's own (make JS=0) that premake cannot answer when it writes the fragment.
+premake.api.register {
+	name = "makecondition",
+	scope = "project",
+	kind = "string",
+}
+
 local MAKE_SOURCE_EXTENSIONS = { [".c"] = true, [".cpp"] = true, [".cc"] = true, [".m"] = true, [".mm"] = true }
 
 -- Repo-relative, forward slashes: the Makefile runs from the repo root.
@@ -119,6 +127,9 @@ function headers_project(entries)
 end
 
 local function write_headers()
+	-- What clean removes: the tree this assembles, and nothing at all where it assembles none (a repo's
+	-- include/ may be its own source).
+	_p("PREMAKE_HEADERS := %s", HEADERS and "include" or "")
 	_p(".PHONY: headers")
 	_p("headers:")
 	if not HEADERS then return end
@@ -149,7 +160,8 @@ local function write_fragment(wks)
 	local wksDebug = workspace_config(wks, "Debug", platform)
 
 	for prj in premake.workspace.eachproject(wks) do
-		if prj.kind == "StaticLib" then
+		local isTool = prj.kind == "ConsoleApp" or prj.kind == "WindowedApp"
+		if prj.kind == "StaticLib" or isTool then
 			local release = premake.project.getconfig(prj, "Release", platform)
 			local debug = premake.project.getconfig(prj, "Debug", platform)
 
@@ -173,6 +185,11 @@ local function write_fragment(wks)
 					local forced = path.isabsolute(header) and make_path(header) or header
 					includes[#includes + 1] = "-include " .. forced
 				end
+				-- buildoptions go to the compiler as they are: a make variable ($(SPIDERMONKEY_INCLUDE)), a
+				-- flag only this target's compiler takes.
+				for _, option in ipairs(only_in(release.buildoptions or {}, wksRelease.buildoptions or {})) do
+					includes[#includes + 1] = option
+				end
 
 				local releaseDefines = only_in(release.defines, wksRelease.defines)
 				local defines = {}
@@ -183,6 +200,7 @@ local function write_fragment(wks)
 				end
 
 				_p("# %s", prj.name)
+				if prj.makecondition then _p("%s", prj.makecondition) end
 				write_list(name .. "_SRCS", sources)
 				write_list(name .. "_INCS", includes)
 				write_list(name .. "_DEFS", defines)
@@ -191,7 +209,9 @@ local function write_fragment(wks)
 					_p("  %s_DEFS += %s", name, table.concat(debugDefines, " "))
 					_p("endif")
 				end
-				_p("$(eval $(call deplib,%s,$(%s_SRCS),$(%s_INCS),$(%s_DEFS)))", name, name, name, name)
+				_p("$(eval $(call %s,%s,$(%s_SRCS),$(%s_INCS),$(%s_DEFS)))", isTool and "premake_tool" or "deplib",
+					name, name, name, name)
+				if prj.makecondition then _p("endif") end
 				_p("")
 			end
 		end

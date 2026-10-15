@@ -13,11 +13,18 @@
 #  Output: Lib/<platform>/<Debug|Release>/lib<name>_static.a, and include/.
 # =============================================================================
 
+# A repo that needs other .mk files first (they set what its fragment refers to) includes common.mk
+# itself, before them.
+ifndef CXXFLAGS_COMMON
 include $(JBUILD)/make/common.mk
+endif
 
-# Third-party code: warnings off (not ours), -fPIC for PIE consumers, C++17 for the C++ libraries,
-# -MMD -MP for header dependency tracking. common.mk's engine-tuned CXXFLAGS does not apply here, so
-# CFLAGS/CXXFLAGS are defined outright; a repo may set either again after this include.
+# Third-party code by default: warnings off (not ours), -fPIC for PIE consumers, C++17 for the C++
+# libraries, -MMD -MP for header dependency tracking - common.mk's engine-tuned CXXFLAGS do not apply, so
+# CFLAGS/CXXFLAGS are defined outright. A repo of its own code (the engine) sets PREMAKE_CODE := own
+# before this include and keeps common.mk's.
+PREMAKE_CODE ?= third-party
+ifneq ($(PREMAKE_CODE),own)
 ifeq ($(CONFIG),debug)
   OPT := -g -O0
 else
@@ -36,6 +43,7 @@ CFLAGS    := $(BASEFLAGS) $(C_PERMISSIVE)
 # -Dregister= strips the `register` keyword that old C++ (RakNet) still uses - removed in C++17,
 # which clang rejects as a hard error (GCC only warned). Harmless everywhere else.
 CXXFLAGS  := -std=c++17 -Dregister= $(BASEFLAGS)
+endif
 
 # ---- object pattern rules (compiler chosen by extension) -------------------
 # The object keeps the source extension (foo.c.o / foo.m.o) so a .c and a .m - or .cpp and .mm - of
@@ -76,6 +84,23 @@ $$($(1)_LIB): $$($(1)_OBJS)
 	$(Q)$$(AR) rcs $$@ $$^
 endef
 
+# $(call premake_tool,<name>,<sources>,<include flags>,<defines>) - an executable, the fragment's call
+# for a ConsoleApp/WindowedApp. Compiled as a library's sources are; linked with $(TOOL_LDFLAGS) and
+# $(TOOL_LDLIBS) after $(TOOL_DEPS) - the repo's, as premake's links are Windows' - into
+# $(BINDIR)/<name>[_d], its debug info split off as common.mk's tools are.
+define premake_tool
+$(1)_OBJS := $$(patsubst %,$$(OBJROOT)/%.o,$(2))
+$(1)_BIN  := $$(BINDIR)/$(1)$$(DBG_POSTFIX)
+ALL_OBJS += $$($(1)_OBJS)
+TOOL_TARGETS += $$($(1)_BIN)
+$$($(1)_OBJS): CPPFLAGS += $(3) $(4)
+$$($(1)_BIN): $$($(1)_OBJS) $$(TOOL_DEPS)
+	@mkdir -p $$(dir $$@)
+	$(ECHO) '$(_C_LINK)[LINK]$(_C_OFF) %s\n' '$$(@F)'
+	$(Q)$$(CXX) $$(CXXFLAGS_CONFIG) $(APPLE_FLAGS) $$($(1)_OBJS) $$(TOOL_LDFLAGS) $$(TOOL_LDLIBS) $$(LDFLAGS_EXTRA) -o $$@
+	$$(call split_debug,$$@)
+endef
+
 # ---- the fragment ----------------------------------------------------------
 # Written whenever it is missing or older than the premake scripts (make rebuilds an included makefile,
 # then starts again with it), fetching the pinned premake first if it has to (premake.sh). Linux and
@@ -99,21 +124,24 @@ $(MAKE_FRAGMENT_FILE): premake5.lua $(wildcard $(JBUILD)/premake/*.lua)
 
 # ---- top-level targets -----------------------------------------------------
 .DEFAULT_GOAL := all
-.PHONY: all libs debug release clean help
+.PHONY: all libs tools debug release clean help
 
-all: libs headers
+all: libs tools headers
 libs: $(LIB_TARGETS)
+tools: $(TOOL_TARGETS)
 
 debug:
 	@$(MAKE) --no-print-directory CONFIG=debug all
 release:
 	@$(MAKE) --no-print-directory CONFIG=release all
 
-# Removes this platform's intermediate objects, both config output trees and the assembled include/.
-# Leaves any Windows Lib\<plat>\<toolset>\ tree alone.
+# Removes this platform's intermediate objects, both config output trees, its tools and the include/
+# the fragment assembles (PREMAKE_HEADERS - empty where it assembles none, as include/ may be the repo's
+# own source). Leaves any Windows Lib\<plat>\<toolset>\ tree alone.
 clean:
-	rm -rf .jbuild/make/$(PLATFORM) include
+	rm -rf .jbuild/make/$(PLATFORM) $(PREMAKE_HEADERS)
 	rm -rf Lib/$(PLATFORM)/Debug Lib/$(PLATFORM)/Release
+	$(if $(TOOL_TARGETS),rm -rf $(BINDIR))
 
 help:
 	@echo '$(notdir $(CURDIR)) - the static libraries premake5.lua names for this target.'
