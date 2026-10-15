@@ -279,8 +279,21 @@ if ($BuildSystem -eq 'cmake') {
 # premake's Windows release, checked by SHA-256 (tools\fetch.ps1, as VC-LTL5 and YY-Thunks are). A new version
 # in premake.sh needs this hash changed with it.
 if (-not (Test-Path -LiteralPath $premake)) {
+    # fetch.ps1 is a script that downloads and unpacks executables - what an antivirus heuristic deletes (AVG has).
+    # Put back from git; if it goes again, say so rather than blaming premake.
+    $fetch = Join-Path $PSScriptRoot 'tools\fetch.ps1'
+    if (-not (Test-Path -LiteralPath $fetch)) {
+        Write-Host "$(Tag 'premake' '0;33') tools\fetch.ps1 is missing - restoring it from git"
+        & git -C $PSScriptRoot checkout -- tools/fetch.ps1 2>$null
+    }
+    if (-not (Test-Path -LiteralPath $fetch)) {
+        Write-Error ("$fetch is missing - almost certainly an antivirus deleting it (a script that downloads executables " +
+            "looks like malware to one). Restore it from the antivirus's quarantine, or with " +
+            "'git -C `"$PSScriptRoot`" checkout -- tools/fetch.ps1', add this folder to the antivirus's exceptions, and run this again.")
+        exit 1
+    }
     try {
-        & (Join-Path $PSScriptRoot 'tools\fetch.ps1') -Name premake -Version $premakeVersion `
+        & $fetch -Name premake -Version $premakeVersion `
             -Url "https://github.com/premake/premake-core/releases/download/v$premakeVersion/premake-$premakeVersion-windows.zip" `
             -Sha256 'e64ce2ed8778e0098f63674cca61fe33941b5f0c8d9a4afd651152bdea3758ab'
     } catch {

@@ -348,6 +348,19 @@ local function tool_root(variable)
 			-- PSModulePath cleared: run from PowerShell 7 (JBuild.ps1 prefers pwsh), Windows PowerShell inherits
 			-- 7's module path and cannot load its own Get-FileHash; with none it uses its own defaults.
 			local script = path.translate(JBUILD_TOOLS .. "/fetch.ps1", "\\")
+
+			-- A script that downloads executables is what an antivirus heuristic deletes (AVG has): put back from
+			-- git, and if it is still gone say so, rather than failing on a script that is not there.
+			if not os.isfile(script) then
+				os.execute('git -C "' .. path.translate(JBUILD_TOOLS .. "/..", "\\") .. '" checkout -- tools/fetch.ps1')
+			end
+			if not os.isfile(script) then
+				error(script .. " is missing - almost certainly an antivirus deleting it (a script that downloads "
+					.. "executables looks like malware to one). Restore it from the antivirus's quarantine or with git "
+					.. "(checkout -- tools/fetch.ps1 in jbuild), add this folder to its exceptions, or set " .. variable
+					.. " to an extracted " .. tool.name .. ".")
+			end
+
 			local ok = os.execute('set "PSModulePath=" && powershell -NoProfile -ExecutionPolicy Bypass -File "' .. script .. '" -Name '
 				.. tool.name .. " -Version " .. tool.version .. " -Url " .. tool.url .. " -Sha256 " .. tool.sha256)
 			if not ok then
