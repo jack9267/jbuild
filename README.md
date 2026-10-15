@@ -15,6 +15,7 @@ include "Dependencies.lua"  -- the %jdependencies_home% tree (zlib, png, SDL2, l
 include "Galactic.lua"      -- linking an INSTALLED Galactic (headers + Lib/<platform>/<toolset>)
 include "Warnings.lua"
 include "XP.lua"            -- Windows XP via VC-LTL5 + YY-Thunks
+include "Signing.lua"       -- signing_workspace(): sign every .exe/.dll when the certificate is here
 ```
 
 `XP.lua`'s `xp_options { supportWinXP = ..., useMsvcrt = ... }`:
