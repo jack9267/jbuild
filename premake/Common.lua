@@ -12,6 +12,53 @@
 -- The Makefile fragment action (premake5 --os=<target> jbuildmake).
 include "Make.lua"
 
+-- A pinned third-party release, fetched once into jbuild\tools\<name>\<version>\ (tools\fetch.ps1, beside premake's
+-- own) and checked against its SHA-256; its folder (forward slashes). `tool` is { name, version, url, sha256 };
+-- `otherwise` ends the error when it cannot be fetched. Never a tool committed: see CLAUDE.md.
+JBUILD_TOOLS = path.getabsolute(_SCRIPT_DIR .. "/../tools")
+
+function jbuild_fetch(tool, otherwise)
+	local root = JBUILD_TOOLS .. "/" .. tool.name .. "/" .. tool.version
+
+	if not os.isfile(root .. "/.jbuild-complete") then
+		local script = path.translate(JBUILD_TOOLS .. "/fetch.ps1", "\\")
+
+		-- A script that downloads executables is what an antivirus heuristic deletes (AVG has): put back from git,
+		-- and if it is still gone say so, rather than failing on a script that is not there.
+		if not os.isfile(script) then
+			os.execute('git -C "' .. path.translate(JBUILD_TOOLS .. "/..", "\\") .. '" checkout -- tools/fetch.ps1')
+		end
+		if not os.isfile(script) then
+			error(script .. " is missing - almost certainly an antivirus deleting it (a script that downloads "
+				.. "executables looks like malware to one). Restore it from the antivirus's quarantine or with git "
+				.. "(checkout -- tools/fetch.ps1 in jbuild), and add this folder to its exceptions; " .. otherwise .. ".")
+		end
+
+		-- PSModulePath cleared: run from PowerShell 7 (JBuild.ps1 prefers pwsh), Windows PowerShell inherits 7's
+		-- module path and cannot load its own Get-FileHash; with none it uses its own defaults.
+		local ok = os.execute('set "PSModulePath=" && powershell -NoProfile -ExecutionPolicy Bypass -File "' .. script .. '" -Name '
+			.. tool.name .. " -Version " .. tool.version .. " -Url " .. tool.url .. " -Sha256 " .. tool.sha256)
+		if not ok then
+			error("Fetching " .. tool.name .. " " .. tool.version .. " into " .. root .. " failed (above); " .. otherwise .. ".")
+		end
+	end
+
+	return root
+end
+
+-- NASM, for a project assembling .asm/.nasm (Dependencies' flac), whatever is on the PATH: 3.02's win64 zip.
+-- Every release from 2.13.02rc2 (the one long installed) to 3.02 assembles flac's three files to the same objects,
+-- byte for byte but the timestamp (checked 2026-10-15).
+local NASM = {
+	name = "nasm", version = "3.02",
+	url = "https://www.nasm.us/pub/nasm/releasebuilds/3.02/win64/nasm-3.02-win64.zip",
+	sha256 = "161d0bfaff53c2f9e9f3e69fd0672323ebabafd1268976a5cec11be92a19aee7",
+}
+
+function jbuild_nasm()
+	return jbuild_fetch(NASM, "or install NASM " .. NASM.version) .. "/nasm-" .. NASM.version .. "/nasm.exe"
+end
+
 -- v141_xp targets Windows XP and later but is not in VS2022; it comes from VS2017's targets, and MSBuild
 -- reports MSB8020 without it. v143 targets Windows 10 and later.
 function common_options(defaultToolset)

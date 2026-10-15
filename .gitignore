@@ -7,6 +7,7 @@ tools/premake/
 # So are VC-LTL5 and YY-Thunks where their variables are not set (tools/fetch.ps1, pinned in premake/XP.lua).
 tools/vc-ltl5/
 tools/yy-thunks/
+tools/nasm/
 
 # pesubsys is compiled on first use by its own wrapper, not committed (source + wrapper are).
 tools/pesubsys/pesubsys.exe
