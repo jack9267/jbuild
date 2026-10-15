@@ -524,21 +524,30 @@ if (-not (Test-Path -LiteralPath $vswhere)) {
     Write-Error 'vswhere.exe was not found, so MSBuild cannot be located. Build from Visual Studio instead.'
     exit 1
 }
-# THE VISUAL STUDIO THE SOLUTION WAS GENERATED FOR, not merely the newest: with VS 2022 and a later one side by side,
-# -latest picks the later, whose MSBuild has no v143 unless its installer added that component - MSB8020 on every
-# project (seen with VS 2022 and VS 2026 both installed). The newest is only the fallback, said out loud.
-$vsRanges = @{ '2017' = '[15.0,16.0)'; '2019' = '[16.0,17.0)'; '2022' = '[17.0,18.0)' }
+# AN INSTALLATION THAT HAS THE TOOLSET, not merely the newest. -latest alone picked VS 2026 beside VS 2022, whose
+# MSBuild has no v143 unless its installer added that component - MSB8020 on every project. And vswhere lists only
+# Community/Professional/Enterprise unless told -products *, so Build Tools for Visual Studio was never seen at all.
+# Every installation is considered, the one generated for (by version) first, and one counts only if its MSBuild
+# has $Toolset under VC\v*\Platforms\*\PlatformToolsets - the folder MSBuild itself looks in.
+$vsRanges = @{ '2017' = 15; '2019' = 16; '2022' = 17 }
+$instances = @(& $vswhere -all -products * -requires Microsoft.Component.MSBuild -format json | ConvertFrom-Json)
+$hasToolset = { param($i) [bool](Get-ChildItem -Path (Join-Path $i.installationPath "MSBuild\Microsoft\VC\v*\Platforms\*\PlatformToolsets\$Toolset") -Directory -EA SilentlyContinue) }
+$wanted = $vsRanges["$VisualStudio"]
+$chosen = @($instances | Where-Object { & $hasToolset $_ } |
+    Sort-Object @{ Expression = { $wanted -and ([int]($_.installationVersion -split '\.')[0]) -eq $wanted }; Descending = $true },
+                @{ Expression = { [version]$_.installationVersion }; Descending = $true }) | Select-Object -First 1
 $msbuild = $null
-if ($vsRanges.ContainsKey("$VisualStudio")) {
-    $msbuild = & $vswhere -latest -version $vsRanges["$VisualStudio"] -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
+if ($chosen) {
+    $msbuild = Get-ChildItem -Path (Join-Path $chosen.installationPath 'MSBuild\*\Bin\MSBuild.exe') -EA SilentlyContinue |
+        Select-Object -First 1 -ExpandProperty FullName
 }
 if (-not $msbuild) {
-    $msbuild = & $vswhere -latest -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
-    if ($msbuild) {
-        Write-Host "$(Tag 'build' '0;33') Visual Studio $VisualStudio was not found; building with $msbuild, which needs the $Toolset build tools installed in it (Visual Studio Installer > Modify > Individual components)."
-    }
+    $found = ($instances | ForEach-Object { "$($_.displayName) $($_.installationVersion)" }) -join '; '
+    Write-Error ("No Visual Studio here has the $Toolset build tools (found: $(if ($found) { $found } else { 'none' })). " +
+        "Add them with the Visual Studio Installer: Modify > Individual components > " +
+        "'MSVC $Toolset - VS $VisualStudio C++ x64/x86 build tools'. Or build from Visual Studio instead.")
+    exit 1
 }
-if (-not $msbuild) { Write-Error 'No MSBuild was found. Build from Visual Studio instead.'; exit 1 }
 Write-Host "$(Tag 'build' '0;36') $msbuild"
 
 $buildConfigs   = if ($Configuration -eq 'All') { $slnConfigs }   else { @($Configuration) }
