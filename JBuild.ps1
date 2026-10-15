@@ -524,8 +524,22 @@ if (-not (Test-Path -LiteralPath $vswhere)) {
     Write-Error 'vswhere.exe was not found, so MSBuild cannot be located. Build from Visual Studio instead.'
     exit 1
 }
-$msbuild = & $vswhere -latest -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
+# THE VISUAL STUDIO THE SOLUTION WAS GENERATED FOR, not merely the newest: with VS 2022 and a later one side by side,
+# -latest picks the later, whose MSBuild has no v143 unless its installer added that component - MSB8020 on every
+# project (seen with VS 2022 and VS 2026 both installed). The newest is only the fallback, said out loud.
+$vsRanges = @{ '2017' = '[15.0,16.0)'; '2019' = '[16.0,17.0)'; '2022' = '[17.0,18.0)' }
+$msbuild = $null
+if ($vsRanges.ContainsKey("$VisualStudio")) {
+    $msbuild = & $vswhere -latest -version $vsRanges["$VisualStudio"] -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
+}
+if (-not $msbuild) {
+    $msbuild = & $vswhere -latest -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
+    if ($msbuild) {
+        Write-Host "$(Tag 'build' '0;33') Visual Studio $VisualStudio was not found; building with $msbuild, which needs the $Toolset build tools installed in it (Visual Studio Installer > Modify > Individual components)."
+    }
+}
 if (-not $msbuild) { Write-Error 'No MSBuild was found. Build from Visual Studio instead.'; exit 1 }
+Write-Host "$(Tag 'build' '0;36') $msbuild"
 
 $buildConfigs   = if ($Configuration -eq 'All') { $slnConfigs }   else { @($Configuration) }
 $buildPlatforms = if ($Platform      -eq 'All') { $slnPlatforms } else { @($Platform) }
