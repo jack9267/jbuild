@@ -32,6 +32,20 @@ premake.api.register {
 	kind = "string",
 }
 
+-- makecall "sample" / makeargs "--file=...": the Makefile's own template the fragment calls for this
+-- project, in place of deplib or premake_tool, and what it is handed after the defines - for what only
+-- the repo knows how to make of a project (an application bundle, an APK, the media packed into it).
+premake.api.register {
+	name = "makecall",
+	scope = "project",
+	kind = "string",
+}
+premake.api.register {
+	name = "makeargs",
+	scope = "project",
+	kind = "string",
+}
+
 local MAKE_SOURCE_EXTENSIONS = { [".c"] = true, [".cpp"] = true, [".cc"] = true, [".m"] = true, [".mm"] = true }
 
 -- Repo-relative, forward slashes: the Makefile runs from the repo root.
@@ -209,8 +223,9 @@ local function write_fragment(wks)
 					_p("  %s_DEFS += %s", name, table.concat(debugDefines, " "))
 					_p("endif")
 				end
-				_p("$(eval $(call %s,%s,$(%s_SRCS),$(%s_INCS),$(%s_DEFS)))", isTool and "premake_tool" or "deplib",
-					name, name, name, name)
+				local call = prj.makecall or (isTool and "premake_tool" or "deplib")
+				_p("$(eval $(call %s,%s,$(%s_SRCS),$(%s_INCS),$(%s_DEFS)%s))", call, name, name, name, name,
+					prj.makeargs and ("," .. prj.makeargs) or "")
 				if prj.makecondition then _p("endif") end
 				_p("")
 			end

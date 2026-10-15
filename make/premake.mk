@@ -135,13 +135,14 @@ debug:
 release:
 	@$(MAKE) --no-print-directory CONFIG=release all
 
-# Removes this platform's intermediate objects, both config output trees, its tools and the include/
+# Removes this platform's intermediate objects, both config output trees, its tools (and $(BINDIR) if a
+# repo's own template puts something there, adding it to BIN_TARGETS) and the include/
 # the fragment assembles (PREMAKE_HEADERS - empty where it assembles none, as include/ may be the repo's
 # own source). Leaves any Windows Lib\<plat>\<toolset>\ tree alone.
 clean:
 	rm -rf .jbuild/make/$(PLATFORM) $(PREMAKE_HEADERS)
 	rm -rf Lib/$(PLATFORM)/Debug Lib/$(PLATFORM)/Release
-	$(if $(TOOL_TARGETS),rm -rf $(BINDIR))
+	$(if $(TOOL_TARGETS)$(BIN_TARGETS),rm -rf $(BINDIR))
 
 help:
 	@echo '$(notdir $(CURDIR)) - the static libraries premake5.lua names for this target.'
