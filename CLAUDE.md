@@ -6,14 +6,17 @@ build, install, and link, across three generators that must stay in lockstep. Th
 *building the SpiderMonkey DLL itself* live in **SpiderMonkeyBuilder**'s CLAUDE.md, not here.
 
 ## The three build systems stay in lockstep
-- `cmake/` (the `j-*.cmake` modules + `presets.json` + `bat/` launchers), `premake/` (`*.lua` + a committed
-  `premake5.exe`), and `make/` (`*.mk`) each express the SAME build. A change to one — a compiler flag, a
+- `cmake/` (the `j-*.cmake` modules + `presets.json` + `bat/` launchers), `premake/` (`*.lua`), and `make/`
+  (`*.mk`) each express the SAME build. A change to one — a compiler flag, a
   library, a platform rule — must be mirrored to the others, or a consumer that happens to use a different
   generator silently misses it. (Worked example: the esr140 `/utf-8`+`XP_WIN` consumer flags belong in
   `cmake/j-spidermonkey.cmake`, the premake SpiderMonkey wiring, and `make/spidermonkey.mk` alike.)
-- `premake/premake5.exe` is deliberately **committed** — consumers run it directly, nothing to install.
+- **premake is NOT committed, on any platform** — it is fetched on first use into `tools/premake/<version>/`
+  (gitignored): by `JBuild.ps1` on Windows (premake's Windows release, through `tools/fetch.ps1`, SHA-256 checked),
+  by `make/premake.sh` elsewhere. The one version pin is `premake.sh`'s `VERSION=`, which `JBuild.ps1` reads; a new
+  version also needs the Windows zip's hash in `JBuild.ps1`. Nothing to install either way.
 - **`JBuild.ps1` (at the jbuild root) is the shared premake driver**: it maps friendly params to premake
-  options, runs premake (`premake/premake5.exe`) against the CONSUMER's `premake5.lua` (via `-Root`, which
+  options, runs premake (`tools/premake/<version>/premake5.exe`) against the CONSUMER's `premake5.lua` (via `-Root`, which
   defaults to jbuild's parent), then **discovers** and optionally MSBuilds the generated `.sln`. The solution
   NAME lives in each consumer's `workspace(...)`, never in the driver, so nothing consumer-specific is hardcoded.
 - **`JBuild.cmd` (at the jbuild root) is the launcher** holding all the boilerplate (pick pwsh, run `JBuild.ps1`,

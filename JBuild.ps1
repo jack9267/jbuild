@@ -5,10 +5,10 @@
 
 .DESCRIPTION
     The build is described by the CONSUMER's premake5.lua at its repo root; this script only maps friendly
-    parameters to premake options, runs the committed premake5.exe (jbuild\premake\), then locates the
+    parameters to premake options, runs premake (fetched into jbuild\tools\premake\<version>\), then locates the
     generated solution and hands it to MSBuild. Generic: the solution NAME and location come from the
     consumer's premake `workspace` (location(rootPath)), never this script - the *.sln is DISCOVERED, not
-    hardcoded. Generation alone is just `premake5.exe vs2022` in the consumer's premake\ dir; this wrapper
+    hardcoded. Generation alone is just `premake5.exe vs2022` at the consumer's root; this wrapper
     adds the parameter mapping and the optional non-interactive build (CI / no Visual Studio open).
 
 .PARAMETER Root
@@ -82,11 +82,14 @@ $script:Color = (-not $env:NO_COLOR) -and (-not [Console]::IsOutputRedirected)
 function Paint([string]$text, [string]$code) { if ($script:Color) { "$([char]27)[${code}m$text$([char]27)[0m" } else { $text } }
 function Tag([string]$name, [string]$code)   { Paint "[$name]" $code }
 
-# This driver is at the jbuild root; premake5.exe and the shared .lua modules are in jbuild\premake\. The
-# consumer's own premake5.lua is at its repo root ($Root). Checked in the premake branch below, so the
-# cmake branch needs none of it.
+# This driver is at the jbuild root; the shared .lua modules are in jbuild\premake\. The consumer's own
+# premake5.lua is at its repo root ($Root). premake itself is not committed on any platform: it is fetched
+# on first use into jbuild\tools\premake\<version>\ (gitignored) - here premake's Windows release, elsewhere
+# make\premake.sh's. ONE PIN: the version is read from premake.sh's VERSION= rather than written twice.
 $jbuildPremake = Join-Path $PSScriptRoot 'premake'
-$premake = Join-Path $jbuildPremake 'premake5.exe'
+$premakeVersion = (Select-String -Path (Join-Path $PSScriptRoot 'make\premake.sh') -Pattern '^VERSION=(.+)$' |
+    Select-Object -First 1).Matches.Groups[1].Value.Trim()
+$premake = Join-Path $PSScriptRoot "tools\premake\$premakeVersion\premake5.exe"
 $consumerPremake = $Root
 
 # The premake option flags (everything except the vsNNNN action), from the params/menu choices. Shared by
@@ -273,9 +276,21 @@ if ($BuildSystem -eq 'cmake') {
 }
 
 # ----- premake path -----
+# premake's Windows release, checked by SHA-256 (tools\fetch.ps1, as VC-LTL5 and YY-Thunks are). A new version
+# in premake.sh needs this hash changed with it.
 if (-not (Test-Path -LiteralPath $premake)) {
-    Write-Error "premake5.exe is missing from $jbuildPremake - it is committed to jbuild; check the working tree is complete."
-    exit 1
+    try {
+        & (Join-Path $PSScriptRoot 'tools\fetch.ps1') -Name premake -Version $premakeVersion `
+            -Url "https://github.com/premake/premake-core/releases/download/v$premakeVersion/premake-$premakeVersion-windows.zip" `
+            -Sha256 'e64ce2ed8778e0098f63674cca61fe33941b5f0c8d9a4afd651152bdea3758ab'
+    } catch {
+        Write-Host "$(Tag 'premake' '0;31') $($_.Exception.Message)"
+    }
+    if (-not (Test-Path -LiteralPath $premake)) {
+        Write-Error ("premake $premakeVersion could not be fetched into $(Split-Path $premake). If an antivirus removed " +
+            "premake5.exe, allow it there (it is premake's own release, from github.com/premake/premake-core) and run this again.")
+        exit 1
+    }
 }
 if (-not $hasPremake) { Write-Error "Build system 'premake' chosen, but no premake5.lua at '$Root'."; exit 1 }
 

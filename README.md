@@ -6,7 +6,8 @@ GalacticTools and friends - the same role the CMake-Modules submodule already pl
 
 ## premake/
 
-The premake5 modules plus the committed `premake5.exe` (nothing to install). A consuming repo's own
+The premake5 modules. premake itself is fetched on first use into `tools/premake/<version>/` (by `JBuild.ps1`
+on Windows, `make/premake.sh` elsewhere; the version pinned in `premake.sh`), so nothing is installed. A consuming repo's own
 `premake5.lua` includes these and then declares only its workspace and projects:
 
 ```lua
