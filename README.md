@@ -23,6 +23,10 @@ include "Signing.lua"       -- signing_workspace(): sign every .exe/.dll when th
 - `useMsvcrt` - `on` binds Windows' own `msvcrt.dll` (small binaries) in every config; `release` does so
   in non-Debug configs only (so Debug keeps the toolset's static CRT and its `_CrtDumpMemoryLeaks` leak
   detection); `off` uses the toolset's own CRT throughout.
+- VC-LTL5 and YY-Thunks are found through `VC_LTL_Root` and `YY_Thunks_Root`. Where one is not set, the
+  pinned release (`premake/XP.lua`: VC-LTL5 5.3.1, YY-Thunks 1.2.2) is fetched into `tools/vc-ltl5/` or
+  `tools/yy-thunks/` the first time a build needs it - `tools/fetch.ps1`, checked by SHA-256 - and the
+  generated projects name that folder, so nothing needs installing.
 
 ## cmake/
 

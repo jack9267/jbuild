@@ -309,6 +309,60 @@ local workspaceThunks = false
 --
 -- CHECKED AT GENERATION TIME, else the failure is silent and late: with the variable unset the paths
 -- resolve to nothing, the stock CRT links, and it builds and runs perfectly here while unable to load on XP.
+-- WHERE VC-LTL5 AND YY-THUNKS ARE: the tool's environment variable when it is set, else a copy fetched into
+-- jbuild\tools\<name>\<version>\ (tools\fetch.ps1, beside premake's own), at the version pinned here and
+-- checked against its SHA-256 - the ones everything has been built and tested with. Each answer is the path
+-- to look in now and what the generated projects say: $(VC_LTL_Root) for a variable, as before; the fetched
+-- folder's real path otherwise, so the solution still builds opened in Visual Studio with no variable set.
+-- Fetched only when a build actually asks for the tool, and once.
+local JBUILD_TOOLS = path.getabsolute(_SCRIPT_DIR .. "/../tools")
+
+local FETCHED_TOOLS = {
+	VC_LTL_Root = {
+		name = "vc-ltl5", version = "5.3.1",
+		url = "https://github.com/Chuyu-Team/VC-LTL5/releases/download/v5.3.1/VC-LTL-Binary.7z",
+		sha256 = "7a18799ed3aa84a225610a5447a56bc534c5c98ccb8dec05caba0e3f633431ad",
+	},
+	YY_Thunks_Root = {
+		name = "yy-thunks", version = "1.2.2",
+		url = "https://github.com/Chuyu-Team/YY-Thunks/releases/download/v1.2.2/YY-Thunks-Objs.zip",
+		sha256 = "518ed7ef4825e8a41997fbccfa2c8090cf31a6038fd51520a2e49886f947f9fc",
+	},
+}
+
+local toolRoots = {}
+
+local function tool_root(variable)
+	if toolRoots[variable] then
+		return toolRoots[variable].root, toolRoots[variable].ref
+	end
+
+	local root, ref = os.getenv(variable), "$(" .. variable .. ")"
+
+	-- Set but empty is as good as unset.
+	if not root or root == "" then
+		local tool = FETCHED_TOOLS[variable]
+		root = JBUILD_TOOLS .. "/" .. tool.name .. "/" .. tool.version
+
+		if not os.isfile(root .. "/.jbuild-complete") then
+			-- PSModulePath cleared: run from PowerShell 7 (JBuild.ps1 prefers pwsh), Windows PowerShell inherits
+			-- 7's module path and cannot load its own Get-FileHash; with none it uses its own defaults.
+			local script = path.translate(JBUILD_TOOLS .. "/fetch.ps1", "\\")
+			local ok = os.execute('set "PSModulePath=" && powershell -NoProfile -ExecutionPolicy Bypass -File "' .. script .. '" -Name '
+				.. tool.name .. " -Version " .. tool.version .. " -Url " .. tool.url .. " -Sha256 " .. tool.sha256)
+			if not ok then
+				error(variable .. " is not set, and fetching " .. tool.name .. " " .. tool.version .. " into "
+					.. root .. " failed (above). Set " .. variable .. " to an extracted copy instead.")
+			end
+		end
+
+		ref = path.translate(root, "\\")
+	end
+
+	toolRoots[variable] = { root = root, ref = ref }
+	return root, ref
+end
+
 local VC_LTL_PLATFORMS = {
 	-- 6.0.6000.0 is VC-LTL's own floor and the one shipping both architectures. What
 	-- --use-msvcrt=on --support-winxp=off asks for: msvcrt.dll for the size, Vista for the floor.
@@ -321,7 +375,7 @@ function use_vc_ltl()
 		return
 	end
 
-	local root = os.getenv("VC_LTL_Root")
+	local root, ref = tool_root("VC_LTL_Root")
 
 	-- nil, or "not configurations:Debug" when --use-msvcrt=release. Added to every filter below so a Debug
 	-- build in that mode gets none of VC-LTL and links the toolset's own (debug) CRT, while every
@@ -337,10 +391,10 @@ function use_vc_ltl()
 			or (not info and (support_winxp() and platform.xp or platform.plain))
 
 		if version then
-			if not root or not os.isdir(root .. "/TargetPlatform/" .. version .. "/lib") then
-				error("VC-LTL5 is needed here. Set VC_LTL_Root to the extracted VC-LTL-Binary.7z "
-					.. "(https://github.com/Chuyu-Team/VC-LTL5/releases). Looked for "
-					.. "TargetPlatform/" .. version .. ".")
+			if not os.isdir(root .. "/TargetPlatform/" .. version .. "/lib") then
+				error("VC-LTL5 is needed here, and " .. root .. " has no TargetPlatform/" .. version .. ". "
+					.. "Set VC_LTL_Root to the extracted VC-LTL-Binary.7z "
+					.. "(https://github.com/Chuyu-Team/VC-LTL5/releases), or unset it to fetch one.")
 			end
 
 			-- THE SEPARATOR IS OURS TO ADD, not something the variable carries. The check above inserts
@@ -348,7 +402,7 @@ function use_vc_ltl()
 			-- passed the check then produced ...VC-LTL5TargetPlatform. Windows takes a doubled separator
 			-- happily (measured: C:\x\/y resolves the same as C:\x\y), so one slash here is correct
 			-- whichever way the variable is written.
-			local ltl = "$(VC_LTL_Root)/TargetPlatform/"
+			local ltl = ref .. "/TargetPlatform/"
 
 			local terms = { "architecture:" .. platform.arch }
 			if cfg then table.insert(terms, cfg) end
@@ -396,7 +450,8 @@ local function yy_thunks_obj(arch)
 	local info = os_info()
 	local suffix = (info and info[arch].thunks) or "WinXP"
 	local dir = (arch == "x86_64") and "x64" or "x86"
-	return "\"$(YY_Thunks_Root)/objs/" .. dir .. "/YY_Thunks_for_" .. suffix .. ".obj\""
+	local _, ref = tool_root("YY_Thunks_Root")
+	return "\"" .. ref .. "/objs/" .. dir .. "/YY_Thunks_for_" .. suffix .. ".obj\""
 end
 
 function use_yy_thunks()
@@ -404,16 +459,16 @@ function use_yy_thunks()
 		return
 	end
 
-	local root = os.getenv("YY_Thunks_Root")
+	local root = tool_root("YY_Thunks_Root")
 
 	for _, arch in ipairs({ "x86", "x86_64" }) do
 		local info = os_info()
 		local suffix = (info and info[arch].thunks) or "WinXP"
 		local dir = (arch == "x86_64") and "x64" or "x86"
-		if not root or not os.isfile(root .. "/objs/" .. dir .. "/YY_Thunks_for_" .. suffix .. ".obj") then
-			error("YY-Thunks is needed here. Set YY_Thunks_Root to the extracted "
-				.. "YY-Thunks-Objs.zip (https://github.com/Chuyu-Team/YY-Thunks/releases). "
-				.. "Looked for objs/" .. dir .. "/YY_Thunks_for_" .. suffix .. ".obj.")
+		if not os.isfile(root .. "/objs/" .. dir .. "/YY_Thunks_for_" .. suffix .. ".obj") then
+			error("YY-Thunks is needed here, and " .. root .. " has no objs/" .. dir .. "/YY_Thunks_for_"
+				.. suffix .. ".obj. Set YY_Thunks_Root to the extracted YY-Thunks-Objs.zip "
+				.. "(https://github.com/Chuyu-Team/YY-Thunks/releases), or unset it to fetch one.")
 		end
 
 		filter { "architecture:" .. arch }
