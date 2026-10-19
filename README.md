@@ -4,6 +4,19 @@ Shared build boilerplate, consumed as a git submodule so each repository *names 
 instead of copy-pasting the build logic. One source of truth across Galactic, GalacticSamples,
 GalacticTools and friends - the same role the CMake-Modules submodule already plays for CMake.
 
+## JBuild.cmd
+
+Double-click a consumer's `JBuild.cmd` and it asks what to do:
+
+1. **Configure** - generate the solution (the default)
+2. **Build** - configure, then build a configuration and platform
+3. **Build all** - configure, then build every configuration and platform
+4. **Rebuild all** - configure, then clean and build everything
+5. **Clean** - clean everything the solution already generated builds (without generating it again)
+
+The same from a command line: `JBuild.cmd -Action Configure|Build|BuildAll|Rebuild|Clean`, with
+`-VisualStudio 2022`, `-Configuration Debug` and `-Platform x64` to skip the other questions.
+
 ## premake/
 
 The premake5 modules. premake itself is fetched on first use into `tools/premake/<version>/` (by `JBuild.ps1`
