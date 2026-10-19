@@ -90,6 +90,18 @@ $script:Color = (-not $env:NO_COLOR) -and (-not [Console]::IsOutputRedirected)
 function Paint([string]$text, [string]$code) { if ($script:Color) { "$([char]27)[${code}m$text$([char]27)[0m" } else { $text } }
 function Tag([string]$name, [string]$code)   { Paint "[$name]" $code }
 
+# A menu's answer. Where every answer is one character (up to 9 choices, or a letter), one key does it, no Enter;
+# Enter alone is '' (the default), as Read-Host's empty line was. Where an answer can be longer - 10 or more
+# choices, or input that is not a console (piped, CI) - a line, as before.
+function Read-Choice([string]$Prompt, [int]$Count = 9) {
+    if ($Count -gt 9 -or [Console]::IsInputRedirected) { return Read-Host $Prompt }
+    Write-Host "${Prompt}: " -NoNewline
+    $key = [Console]::ReadKey($true)
+    if ($key.Key -eq [ConsoleKey]::Enter) { Write-Host ''; return '' }
+    Write-Host $key.KeyChar
+    return [string]$key.KeyChar
+}
+
 # This driver is at the jbuild root; the shared .lua modules are in jbuild\premake\. The consumer's own
 # premake5.lua is at its repo root ($Root). premake itself is not committed on any platform: it is fetched
 # on first use into jbuild\tools\premake\<version>\ (gitignored) - here premake's Windows release, elsewhere
@@ -152,7 +164,7 @@ function Invoke-Cmake {
             Write-Host ''
             Write-Host (Paint 'Generate for which Visual Studio?' '1;36')
             for ($i = 0; $i -lt $vers.Count; $i++) { Write-Host ("  {0} Visual Studio {1}{2}" -f (Paint ("[{0}]" -f ($i + 1)) '0;36'), $vers[$i], $(if ($i -eq 0) { Paint '  (default)' '0;32' } else { '' })) }
-            $p = Read-Host 'Enter 1-3 (or Enter for the default)'
+            $p = Read-Choice 'Enter 1-3 (or Enter for the default)' 3
             $vs = if ($p -match '^[1-3]$') { $vers[[int]$p - 1] } else { $vers[0] }
         }
         if (-not $arch) {
@@ -160,7 +172,7 @@ function Invoke-Cmake {
             Write-Host (Paint 'Architecture?' '1;36')
             Write-Host ("  {0} Win32 (x86){1}" -f (Paint '[1]' '0;36'), (Paint '  (default)' '0;32'))
             Write-Host ("  {0} x64" -f (Paint '[2]' '0;36'))
-            $p = Read-Host 'Enter 1-2 (or Enter for Win32)'
+            $p = Read-Choice 'Enter 1-2 (or Enter for Win32)' 2
             $arch = if ($p -eq '2') { 'x64' } else { 'Win32' }
         }
         # 2017 is XP-only; 2019 offers modern (v142) or XP (v141_xp); 2022 is v143 (XP via SUPPORT_WINXP).
@@ -170,7 +182,7 @@ function Invoke-Cmake {
             Write-Host (Paint 'Toolset?' '1;36')
             Write-Host ("  {0} v142 - modern (reaches XP via VC-LTL5 + YY-Thunks){1}" -f (Paint '[1]' '0;36'), (Paint '  (default)' '0;32'))
             Write-Host ("  {0} v141_xp - the XP toolset" -f (Paint '[2]' '0;36'))
-            $p = Read-Host 'Enter 1-2 (or Enter for v142)'
+            $p = Read-Choice 'Enter 1-2 (or Enter for v142)' 2
             $xpToolset = ($p -eq '2')
         }
     }
@@ -195,7 +207,7 @@ function Invoke-Cmake {
             Write-Host ''
             Write-Host (Paint "SpiderMonkey ESR (installed under $env:jspidermonkey_home):" '1;36')
             for ($i = 0; $i -lt $esr.Count; $i++) { Write-Host ("  {0} esr{1}" -f (Paint ("[{0}]" -f ($i + 1)) '0;36'), $esr[$i]) }
-            $p = Read-Host "Enter 1-$($esr.Count) (or Enter to keep the default)"
+            $p = Read-Choice "Enter 1-$($esr.Count) (or Enter to keep the default)" $esr.Count
             if ($p -match '^\d+$' -and [int]$p -ge 1 -and [int]$p -le $esr.Count) { $sm = $esr[[int]$p - 1] }
         }
     }
@@ -205,7 +217,7 @@ function Invoke-Cmake {
     # INSTRUCTIONS follows it in the cmake script itself, so it is not a separate prompt.
     if (-not $xpToolset) {
         if ($interactive) {
-            $p = Read-Host "`nWindows XP support?  [Enter] yes (default) / n no"
+            $p = Read-Choice "`nWindows XP support?  [Enter] yes (default) / n no"
             if ($p -match '^[nN]') { $defs += '-DSUPPORT_WINXP=OFF' }
         }
         elseif ($SupportWinXP -eq 'Off') { $defs += '-DSUPPORT_WINXP=OFF' }
@@ -215,7 +227,7 @@ function Invoke-Cmake {
     # default to msvcrt, _xp ones to static), so static must pass -DUSE_MSVCRT=OFF explicitly to override it.
     # cmake has no dynamic / app-local UCRT equivalent.
     if ($interactive) {
-        $p = Read-Host "`nCRT?  [Enter] the preset default / 1 msvcrt (VC-LTL5) / 2 static UCRT"
+        $p = Read-Choice "`nCRT?  [Enter] the preset default / 1 msvcrt (VC-LTL5) / 2 static UCRT" 2
         if ($p -eq '1') { $defs += '-DUSE_MSVCRT=ON' } elseif ($p -eq '2') { $defs += '-DUSE_MSVCRT=OFF' }
     }
     elseif ($UseMsvcrt -eq 'On' -or $Crt -eq 'msvcrt') { $defs += '-DUSE_MSVCRT=ON' }
@@ -248,7 +260,7 @@ function Invoke-Cmake {
     $cfg = $Configuration
     if (-not $cfg) {
         if ($interactive) {
-            $p = Read-Host "`nBuild which configuration?  1 Debug / [Enter] 2 Release / 3 both"
+            $p = Read-Choice "`nBuild which configuration?  1 Debug / [Enter] 2 Release / 3 both" 3
             switch ($p) { '1' { $cfg = 'Debug' } '3' { $cfg = 'both' } default { $cfg = 'Release' } }
         }
         else { $cfg = 'Release' }
@@ -280,7 +292,7 @@ if (-not $Action) {
         for ($i = 0; $i -lt $actions.Count; $i++) {
             Write-Host ("  {0} {1}{2}" -f (Paint ("[{0}]" -f ($i + 1)) '0;36'), $actions[$i].n, $(if ($i -eq 0) { Paint '  (default)' '0;32' } else { '' }))
         }
-        $p = Read-Host "Enter 1-$($actions.Count) (or Enter for the default)"
+        $p = Read-Choice "Enter 1-$($actions.Count) (or Enter for the default)" $actions.Count
         if ([string]::IsNullOrWhiteSpace($p)) { $Action = 'Configure' }
         elseif ($p -match '^\d+$' -and [int]$p -ge 1 -and [int]$p -le $actions.Count) { $Action = $actions[[int]$p - 1].k }
         else { Write-Error "Not a choice: '$p'."; exit 1 }
@@ -311,7 +323,7 @@ if (-not $BuildSystem) {
         Write-Host (Paint 'Build system?' '1;36')
         Write-Host ("  {0} premake  (generate a Visual Studio solution){1}" -f (Paint '[1]' '0;36'), (Paint '  (default)' '0;32'))
         Write-Host ("  {0} cmake    (configure with CMake presets)" -f (Paint '[2]' '0;36'))
-        $p = Read-Host 'Enter 1-2 (or Enter for premake)'
+        $p = Read-Choice 'Enter 1-2 (or Enter for premake)' 2
         $BuildSystem = if ($p -eq '2') { 'cmake' } else { 'premake' }
     }
     elseif ($hasPremake) { $BuildSystem = 'premake' }
@@ -388,7 +400,7 @@ if (-not $VisualStudio) {
         for ($i = 0; $i -lt $versions.Count; $i++) {
             Write-Host ("  {0} Visual Studio {1}{2}" -f (Paint ("[{0}]" -f ($i + 1)) '0;36'), $versions[$i], $(if ($i -eq 0) { Paint '  (default)' '0;32' } else { '' }))
         }
-        $pick = Read-Host 'Enter 1-3 (or press Enter for the default)'
+        $pick = Read-Choice 'Enter 1-3 (or press Enter for the default)' 3
         if ([string]::IsNullOrWhiteSpace($pick)) { $VisualStudio = $versions[0] }
         elseif ($pick -match '^[1-3]$')          { $VisualStudio = $versions[[int]$pick - 1] }
         else { Write-Error "Not a choice: '$pick'."; exit 1 }
@@ -429,7 +441,7 @@ if (-not $VisualStudio) {
                         $mark = if ($esr[$i] -eq $smDefault) { Paint '  (default)' '0;32' } else { '' }
                         Write-Host ("  {0} esr{1}{2}" -f (Paint ("[{0}]" -f ($i + 1)) '0;36'), $esr[$i], $mark)
                     }
-                    $p = Read-Host "Enter 1-$($esr.Count) (or Enter to keep the default)"
+                    $p = Read-Choice "Enter 1-$($esr.Count) (or Enter to keep the default)" $esr.Count
                     if ($p -match '^\d+$' -and [int]$p -ge 1 -and [int]$p -le $esr.Count) { $SpiderMonkeyVersion = $esr[[int]$p - 1] }
                 }
             }
@@ -473,7 +485,7 @@ if (-not $VisualStudio) {
                 Write-Host ''
                 Write-Host (Paint 'Target OS - oldest Windows the binaries must run on?' '1;36')
                 for ($i = 0; $i -lt $oses.Count; $i++) { Write-Host ("  {0} {1}" -f (Paint ("[{0}]" -f ($i + 1)) '0;36'), $oses[$i].n) }
-                $p = Read-Host "Enter 1-$($oses.Count) (or Enter to keep the default)"
+                $p = Read-Choice "Enter 1-$($oses.Count) (or Enter to keep the default)" $oses.Count
                 if ($p -match '^\d+$' -and [int]$p -ge 1 -and [int]$p -le $oses.Count) { $TargetOs = $oses[[int]$p - 1].k }
             }
             # CRT - the full selector (msvcrt / static / dynamic / app-local UCRT), offered when the consumer
@@ -489,7 +501,7 @@ if (-not $VisualStudio) {
                 if ($TargetOs -eq 'win2000') {
                     Write-Host (Paint "  note: for a Windows 2000 target, msvcrt (1) applies to x64 only - x86 has no VC-LTL tier and stays static." '0;33')
                 }
-                $p = Read-Host "Enter 1-4 (or Enter to keep the default)"
+                $p = Read-Choice "Enter 1-4 (or Enter to keep the default)" 4
                 switch ($p) { '1' { $Crt = 'msvcrt' } '2' { $Crt = 'static' } '3' { $Crt = 'dynamic' } '4' { $Crt = 'ucrt-local' } }
 
                 # Debug CRT - only worth asking once a non-default Release CRT is chosen. Enter keeps the
@@ -501,7 +513,7 @@ if (-not $VisualStudio) {
                     Write-Host ("  {0} Static UCRT (/MT) - the default" -f (Paint '[2]' '0;36'))
                     Write-Host ("  {0} Dynamic UCRT (/MD)" -f (Paint '[3]' '0;36'))
                     Write-Host ("  {0} Dynamic UCRT, app-local (incl. non-redistributable debug DLLs)" -f (Paint '[4]' '0;36'))
-                    $p = Read-Host "Enter 1-4 (or Enter for static)"
+                    $p = Read-Choice "Enter 1-4 (or Enter for static)" 4
                     switch ($p) { '1' { $CrtDebug = 'msvcrt' } '2' { $CrtDebug = 'static' } '3' { $CrtDebug = 'dynamic' } '4' { $CrtDebug = 'ucrt-local' } }
                 }
             }
@@ -558,7 +570,7 @@ if (-not $Configuration -and $interactive) {
     for ($i = 0; $i -lt $slnConfigs.Count; $i++) { Write-Host ("  {0} {1}{2}" -f (Paint ("[{0}]" -f ($i + 1)) '0;36'), $slnConfigs[$i], $(if ($i -eq $cfgDefault) { Paint '  (default)' '0;32' } else { '' })) }
     $cfgAllIdx = $slnConfigs.Count + 1
     if ($slnConfigs.Count -gt 1) { Write-Host ("  {0} All ({1})" -f (Paint ("[{0}]" -f $cfgAllIdx) '0;36'), ($slnConfigs -join ' + ')) }
-    $p = Read-Host 'Enter a number (or Enter for the default)'
+    $p = Read-Choice 'Enter a number (or Enter for the default)' ($slnConfigs.Count + $(if ($slnConfigs.Count -gt 1) { 1 } else { 0 }))
     if ([string]::IsNullOrWhiteSpace($p)) { $Configuration = $slnConfigs[$cfgDefault] }
     elseif ($p -match '^\d+$' -and [int]$p -ge 1 -and [int]$p -le $slnConfigs.Count) { $Configuration = $slnConfigs[[int]$p - 1] }
     elseif ($slnConfigs.Count -gt 1 -and $p -eq "$cfgAllIdx") { $Configuration = 'All' }
@@ -579,7 +591,7 @@ if (-not $Platform) {
         for ($i = 0; $i -lt $slnPlatforms.Count; $i++) { Write-Host ("  {0} {1}{2}" -f (Paint ("[{0}]" -f ($i + 1)) '0;36'), $slnPlatforms[$i], $(if ($i -eq 0) { Paint '  (default)' '0;32' } else { '' })) }
         $allIdx = $slnPlatforms.Count + 1
         if ($slnPlatforms.Count -gt 1) { Write-Host ("  {0} All ({1})" -f (Paint ("[{0}]" -f $allIdx) '0;36'), ($slnPlatforms -join ' + ')) }
-        $p = Read-Host 'Enter a number (or Enter for the default)'
+        $p = Read-Choice 'Enter a number (or Enter for the default)' ($slnPlatforms.Count + $(if ($slnPlatforms.Count -gt 1) { 1 } else { 0 }))
         if ([string]::IsNullOrWhiteSpace($p)) { $Platform = $slnPlatforms[0] }
         elseif ($p -match '^\d+$' -and [int]$p -ge 1 -and [int]$p -le $slnPlatforms.Count) { $Platform = $slnPlatforms[[int]$p - 1] }
         elseif ($slnPlatforms.Count -gt 1 -and $p -eq "$allIdx") { $Platform = 'All' }
