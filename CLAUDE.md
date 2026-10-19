@@ -19,6 +19,14 @@ build, install, and link, across three generators that must stay in lockstep. Th
   options, runs premake (`tools/premake/<version>/premake5.exe`) against the CONSUMER's `premake5.lua` (via `-Root`, which
   defaults to jbuild's parent), then **discovers** and optionally MSBuilds the generated `.sln`. The solution
   NAME lives in each consumer's `workspace(...)`, never in the driver, so nothing consumer-specific is hardcoded.
+- **`-Action` is what it does** (2026-10-19, the user's ask): `Configure` (generate only), `Build` (then a
+  configuration and platform, asked for when not given), `BuildAll` (every configuration and platform),
+  `Rebuild` (the same with MSBuild `/t:Rebuild`, cmake `--clean-first`) and `Clean` (MSBuild `/t:Clean`, cmake
+  `--target clean`, every configuration and platform). A double-click with no arguments is asked this FIRST,
+  Configure the default; non-interactive with no `-Action` is Configure, or Build with the older `-Build`. Clean
+  uses the solution already generated (its Visual Studio read from the `.sln`) and does not regenerate - and
+  removes only what the projects build, never a folder. The menu sets `$Build`/`$Configuration`/`$Platform` and
+  the MSBuild target, so the rest of the script is as it was.
 - **`JBuild.cmd` (at the jbuild root) is the launcher** holding all the boilerplate (pick pwsh, run `JBuild.ps1`,
   pause). A consumer keeps only a **one-line `JBuild.cmd` at its repo root**: `@call "%~dp0jbuild\JBuild.cmd" %*`
   — so none of the launcher boilerplate is copied per repo. Generation alone is still just `premake5.exe vs2022`.

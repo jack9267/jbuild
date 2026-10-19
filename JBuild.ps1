@@ -33,6 +33,14 @@ param(
 
     [string] $Toolset = 'v143',
 
+    # What to do. Empty offers a menu when interactive (a double-click), else Configure - or Build with -Build.
+    # Configure: generate only. Build: generate, then build a configuration and platform (asked for, or
+    # -Configuration/-Platform). BuildAll: generate, then build every configuration and platform. Rebuild: the
+    # same, cleaning first (MSBuild /t:Rebuild). Clean: clean every configuration and platform of the solution
+    # already generated (MSBuild /t:Clean, which removes what the projects build and nothing else).
+    [ValidateSet('', 'Configure', 'Build', 'BuildAll', 'Rebuild', 'Clean')]
+    [string] $Action = '',
+
     [switch] $Build,
 
     # Build configuration; empty = chosen from the solution's own configurations (a prompt, or the default).
@@ -234,19 +242,61 @@ function Invoke-Cmake {
     Write-Host "$(Tag 'solution' '0;36') configured$(if ($binDir) { " -> $binDir" })"
 
     # ---- optional build ----
-    if (-not $Build -and -not $interactive) { return }
+    # Configure stops here; Build asks for a configuration when none was given; BuildAll, Rebuild and Clean
+    # take every one ('All', set with the action).
+    if (-not $Build) { return }
     $cfg = $Configuration
     if (-not $cfg) {
-        if (-not $interactive) { return }
-        $p = Read-Host "`nBuild now?  [Enter] skip / 1 Debug / 2 Release / 3 both"
-        switch ($p) { '1' { $cfg = 'Debug' } '2' { $cfg = 'Release' } '3' { $cfg = 'both' } default { return } }
+        if ($interactive) {
+            $p = Read-Host "`nBuild which configuration?  1 Debug / [Enter] 2 Release / 3 both"
+            switch ($p) { '1' { $cfg = 'Debug' } '3' { $cfg = 'both' } default { $cfg = 'Release' } }
+        }
+        else { $cfg = 'Release' }
     }
     if (-not $binDir) { Write-Error 'Could not resolve the preset build directory.'; exit 1 }
-    foreach ($c in $(if ($cfg -eq 'both') { @('Debug', 'Release') } else { @($cfg) })) {
-        Write-Host "$(Tag 'build' '1;34') $preset $c"
-        & $cmake.Source --build $binDir --config $c
-        if ($LASTEXITCODE -ne 0) { Write-Error "cmake build ($c) failed."; exit $LASTEXITCODE }
+    $how = switch ($msbuildTarget) { 'Clean' { @('--target', 'clean') } 'Rebuild' { @('--clean-first') } default { @() } }
+    foreach ($c in $(if ($cfg -in @('both', 'All')) { @('Debug', 'Release') } else { @($cfg) })) {
+        Write-Host "$(Tag $msbuildTarget.ToLower() '1;34') $preset $c"
+        & $cmake.Source --build $binDir --config $c @how
+        if ($LASTEXITCODE -ne 0) { Write-Error "cmake $($msbuildTarget.ToLower()) ($c) failed."; exit $LASTEXITCODE }
     }
+}
+
+# ----- what to do -----
+# Asked first on a double-click; given by -Action (or -Build) otherwise. Everything after reads $Build,
+# $Configuration and $Platform as it always has, so the menu only sets those, plus the MSBuild target.
+if (-not $Action) {
+    if ($Build) { $Action = 'Build' }
+    elseif ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
+        $actions = @(
+            @{ k = 'Configure'; n = 'Configure       - generate the solution' }
+            @{ k = 'Build';     n = 'Build           - configure, then build a configuration and platform' }
+            @{ k = 'BuildAll';  n = 'Build all       - configure, then build every configuration and platform' }
+            @{ k = 'Rebuild';   n = 'Rebuild all     - configure, then clean and build everything' }
+            @{ k = 'Clean';     n = 'Clean           - clean everything the solution builds' }
+        )
+        Write-Host ''
+        Write-Host (Paint 'What would you like to do?' '1;36')
+        for ($i = 0; $i -lt $actions.Count; $i++) {
+            Write-Host ("  {0} {1}{2}" -f (Paint ("[{0}]" -f ($i + 1)) '0;36'), $actions[$i].n, $(if ($i -eq 0) { Paint '  (default)' '0;32' } else { '' }))
+        }
+        $p = Read-Host "Enter 1-$($actions.Count) (or Enter for the default)"
+        if ([string]::IsNullOrWhiteSpace($p)) { $Action = 'Configure' }
+        elseif ($p -match '^\d+$' -and [int]$p -ge 1 -and [int]$p -le $actions.Count) { $Action = $actions[[int]$p - 1].k }
+        else { Write-Error "Not a choice: '$p'."; exit 1 }
+    }
+    else { $Action = 'Configure' }
+}
+$msbuildTarget = 'Build'
+switch ($Action) {
+    'Build'    { $Build = $true }
+    'BuildAll' { $Build = $true }
+    'Rebuild'  { $Build = $true; $msbuildTarget = 'Rebuild' }
+    'Clean'    { $Build = $true; $msbuildTarget = 'Clean' }
+}
+if ($Action -in @('BuildAll', 'Rebuild', 'Clean')) {
+    if (-not $Configuration) { $Configuration = 'All' }
+    if (-not $Platform)      { $Platform = 'All' }
 }
 
 # ----- which build system -----
@@ -306,6 +356,26 @@ if (-not (Test-Path -LiteralPath $premake)) {
     }
 }
 if (-not $hasPremake) { Write-Error "Build system 'premake' chosen, but no premake5.lua at '$Root'."; exit 1 }
+
+# The solution generated before, if any: in .jbuild (the convention, location ".jbuild"), then the repo root.
+function Find-Solution {
+    return @(
+        @(Get-ChildItem -LiteralPath (Join-Path $Root '.jbuild') -Filter *.sln -File -EA SilentlyContinue) +
+        @(Get-ChildItem -LiteralPath $Root -Filter *.sln -File -EA SilentlyContinue)) | Select-Object -First 1
+}
+
+# Cleaning is of what the solution there builds, so it is not generated again; its Visual Studio is read from it,
+# for choosing the MSBuild below. With none there, nothing has been built from it.
+$skipGenerate = $false
+if ($Action -eq 'Clean') {
+    $existing = Find-Solution
+    if (-not $existing) { Write-Host "$(Tag 'clean' '0;33') no solution has been generated under '$Root', so there is nothing to clean"; exit 0 }
+    $skipGenerate = $true
+    if (-not $VisualStudio) {
+        $major = [regex]::Match((Get-Content -LiteralPath $existing.FullName -Raw), '(?m)^VisualStudioVersion\s*=\s*(\d+)\.').Groups[1].Value
+        $VisualStudio = switch ($major) { '15' { '2017' } '16' { '2019' } default { '2022' } }
+    }
+}
 
 # No VS version chosen (e.g. a double-click with no args): offer a menu. In a non-interactive context
 # (piped / CI, where stdin is redirected) fall back to the newest so a prompt never hangs the run.
@@ -441,25 +511,24 @@ if (-not $VisualStudio) {
     else { $VisualStudio = $versions[0] }
 }
 
-$arguments = @("vs$VisualStudio") + (Get-OptionArgs)
+if (-not $skipGenerate) {
+    $arguments = @("vs$VisualStudio") + (Get-OptionArgs)
 
-$xp = if ($SupportWinXP) { $SupportWinXP -eq 'On' } else { $true }
-Write-Host "$(Tag 'premake' '0;36') $(& $premake --version)"
-Write-Host "$(Tag 'generate' '0;32') vs$VisualStudio ($Toolset, $(if ($xp) {'Windows XP and later'} else {'Windows 10 and later'}))"
+    $xp = if ($SupportWinXP) { $SupportWinXP -eq 'On' } else { $true }
+    Write-Host "$(Tag 'premake' '0;36') $(& $premake --version)"
+    Write-Host "$(Tag 'generate' '0;32') vs$VisualStudio ($Toolset, $(if ($xp) {'Windows XP and later'} else {'Windows 10 and later'}))"
 
-Push-Location $consumerPremake
-try {
-    & $premake @arguments
-    if ($LASTEXITCODE -ne 0) { Write-Error 'premake could not generate the solution.'; exit $LASTEXITCODE }
-} finally {
-    Pop-Location
+    Push-Location $consumerPremake
+    try {
+        & $premake @arguments
+        if ($LASTEXITCODE -ne 0) { Write-Error 'premake could not generate the solution.'; exit $LASTEXITCODE }
+    } finally {
+        Pop-Location
+    }
 }
 
-# DISCOVER the generated solution - its name is the premake workspace's, written to location(). The
-# convention is location ".jbuild" (gitignored build output), so look there first, then the repo root.
-$solution = @(
-    @(Get-ChildItem -LiteralPath (Join-Path $Root '.jbuild') -Filter *.sln -File -EA SilentlyContinue) +
-    @(Get-ChildItem -LiteralPath $Root -Filter *.sln -File -EA SilentlyContinue)) | Select-Object -First 1
+# DISCOVER the generated solution - its name is the premake workspace's, written to location().
+$solution = Find-Solution
 if (-not $solution) { Write-Error "premake generated no .sln under '$Root' (or its .jbuild\)."; exit 1 }
 Write-Host "$(Tag 'solution' '0;36') $($solution.FullName)"
 
@@ -480,18 +549,19 @@ if (-not $slnPlatforms) { $slnPlatforms = @('Win32') }
 
 $interactive = [Environment]::UserInteractive -and -not [Console]::IsInputRedirected
 
-# Whether to build. Not asked for unless interactive; -Build (or picking a configuration below) opts in.
-if (-not $Build) {
-    if (-not $interactive) { exit 0 }   # generation only
+# Configure is generation only. Build asks which configuration when none was given (Enter: Release, or the first).
+if (-not $Build) { exit 0 }
+if (-not $Configuration -and $interactive) {
+    $cfgDefault = if ($slnConfigs -contains 'Release') { $slnConfigs.IndexOf('Release') } else { 0 }
     Write-Host ''
-    Write-Host (Paint 'Build now? Pick a configuration, or press Enter to just generate and open it yourself:' '1;36')
-    for ($i = 0; $i -lt $slnConfigs.Count; $i++) { Write-Host ("  {0} {1}" -f (Paint ("[{0}]" -f ($i + 1)) '0;36'), $slnConfigs[$i]) }
+    Write-Host (Paint 'Build which configuration?' '1;36')
+    for ($i = 0; $i -lt $slnConfigs.Count; $i++) { Write-Host ("  {0} {1}{2}" -f (Paint ("[{0}]" -f ($i + 1)) '0;36'), $slnConfigs[$i], $(if ($i -eq $cfgDefault) { Paint '  (default)' '0;32' } else { '' })) }
     $cfgAllIdx = $slnConfigs.Count + 1
     if ($slnConfigs.Count -gt 1) { Write-Host ("  {0} All ({1})" -f (Paint ("[{0}]" -f $cfgAllIdx) '0;36'), ($slnConfigs -join ' + ')) }
-    $p = Read-Host 'Enter a number to build (or Enter to skip)'
-    if ([string]::IsNullOrWhiteSpace($p)) { exit 0 }
-    elseif ($p -match '^\d+$' -and [int]$p -ge 1 -and [int]$p -le $slnConfigs.Count) { $Build = $true; $Configuration = $slnConfigs[[int]$p - 1] }
-    elseif ($slnConfigs.Count -gt 1 -and $p -eq "$cfgAllIdx") { $Build = $true; $Configuration = 'All' }
+    $p = Read-Host 'Enter a number (or Enter for the default)'
+    if ([string]::IsNullOrWhiteSpace($p)) { $Configuration = $slnConfigs[$cfgDefault] }
+    elseif ($p -match '^\d+$' -and [int]$p -ge 1 -and [int]$p -le $slnConfigs.Count) { $Configuration = $slnConfigs[[int]$p - 1] }
+    elseif ($slnConfigs.Count -gt 1 -and $p -eq "$cfgAllIdx") { $Configuration = 'All' }
     else { Write-Error "Not a choice: '$p'."; exit 1 }
 }
 
@@ -561,9 +631,9 @@ foreach ($cfg in $buildConfigs) {
             continue
         }
         Write-Host ''
-        Write-Host "$(Tag 'build' '1;34') $cfg / $plat"
+        Write-Host "$(Tag $msbuildTarget.ToLower() '1;34') $cfg / $plat"
         Write-Host ''
-        & $msbuild $solution.FullName "/p:Configuration=$cfg" "/p:Platform=$plat" /v:minimal /nologo /m
+        & $msbuild $solution.FullName "/t:$msbuildTarget" "/p:Configuration=$cfg" "/p:Platform=$plat" /v:minimal /nologo /m
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     }
 }
