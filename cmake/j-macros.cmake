@@ -182,6 +182,16 @@ function(new_library_executable NAME SOURCES DEFINES)
 	install_target_debug_info(${NAME})
 endfunction()
 
+# Foo64.exe and Foo64_d.exe for a 64-bit build, in place of Foo_x64.exe and Foo_d_x64.exe: for a program shipped
+# in both, whose two builds are told apart by name. After the target's own output names; premake's is Common.lua's
+# bits_in_name().
+function(bits_in_name NAME)
+	if(WIN32 AND CMAKE_SIZEOF_VOID_P EQUAL 8)
+		set_target_properties("${NAME}" PROPERTIES RUNTIME_OUTPUT_NAME "${NAME}64")
+		set_target_properties("${NAME}" PROPERTIES RUNTIME_OUTPUT_NAME_DEBUG "${NAME}64_d")
+	endif()
+endfunction()
+
 macro(copy_dependency_to PATH NAME EXTENSION TO)
 	install(DIRECTORY "${PATH}/Debug/" DESTINATION "${LIB_DIRECTORY}/Debug/${TO}" CONFIGURATIONS Debug FILES_MATCHING PATTERN "${NAME}${RUNTIME_DEBUG_POSTFIX}.${EXTENSION}")
 	install(DIRECTORY "${PATH}/Release/" DESTINATION "${LIB_DIRECTORY}/Release/${TO}" CONFIGURATIONS Release FILES_MATCHING PATTERN "${NAME}${RUNTIME_RELEASE_POSTFIX}.${EXTENSION}")

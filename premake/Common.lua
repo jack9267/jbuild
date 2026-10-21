@@ -454,3 +454,20 @@ function common_project()
 
 	filter {}
 end
+
+-- THE BITS IN THE NAME, FOR A PROGRAM SHIPPED IN BOTH: Foo.exe and Foo64.exe side by side, Foo_d.exe and
+-- Foo64_d.exe in Debug, in place of the _x64 and _d_x64 above. For one whose two builds are told apart by name
+-- - a 32-bit program choosing which to start. Call it in the project, after common_project(); only x64 is renamed
+-- (ARM keeps _arm and _arm64), and a static library keeps its plain name as before. `name` is what 64 goes after,
+-- the project's own name if not given - an x64-only project beside a 32-bit one (see configmap) is named apart from
+-- it already, and passes the shared one. CMake's is j-macros.cmake's bits_in_name(NAME).
+function bits_in_name(name)
+	filter { "architecture:x86_64", "not kind:StaticLib" }
+		targetname ((name or "%{prj.name}") .. "64")
+		targetsuffix ""
+
+	filter { "configurations:Debug", "architecture:x86_64", "not kind:StaticLib" }
+		targetsuffix "_d"
+
+	filter {}
+end

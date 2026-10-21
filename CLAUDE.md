@@ -111,6 +111,10 @@ build, install, and link, across three generators that must stay in lockstep. Th
   multi-select menu and the `.sln`-driven build menu then lists exactly what was generated. ARM/ARM64 are
   **generation-only** — building them needs the ARM toolchain and ARM-built dependencies installed; they get
   no XP/VC-LTL/YY treatment (ARM Windows is Win10+). Their output is suffixed `_arm`/`_arm64` (`_d_*` in Debug).
+- **`bits_in_name()` is opt-in naming for a program shipped in both bitnesses** (2026-10-21, the user's ask):
+  `Foo64.exe`/`Foo64_d.exe` for x64 in place of `Foo_x64.exe`/`Foo_d_x64.exe` - premake `Common.lua`'s
+  `bits_in_name()` (in the project, after `common_project()`), CMake `j-macros.cmake`'s `bits_in_name(NAME)`
+  (after the target's own output names). Only x64 is renamed. `make/` has no architecture suffix to mirror.
 - This is the engine/tool side only. Producing the `mozjs-<NN>.dll` that those binaries load is a *separate*
   repo (SpiderMonkeyBuilder) with its own XP method and its own hard-won gotchas.
 
