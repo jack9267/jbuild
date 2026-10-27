@@ -34,9 +34,11 @@ function jbuild_fetch(tool, otherwise)
 				.. "(checkout -- tools/fetch.ps1 in jbuild), and add this folder to its exceptions; " .. otherwise .. ".")
 		end
 
-		-- PSModulePath cleared: run from PowerShell 7 (JBuild.ps1 prefers pwsh), Windows PowerShell inherits 7's
-		-- module path and cannot load its own Get-FileHash; with none it uses its own defaults.
-		local ok = os.execute('set "PSModulePath=" && powershell -NoProfile -ExecutionPolicy Bypass -File "' .. script .. '" -Name '
+		-- pwsh when there is one, as JBuild.cmd picks, else Windows PowerShell. PSModulePath cleared: Windows
+		-- PowerShell run from PowerShell 7 inherits 7's module path and cannot load its own Get-FileHash; with none
+		-- either uses its own defaults.
+		local shell = os.execute("where pwsh >nul 2>nul") and "pwsh" or "powershell"
+		local ok = os.execute('set "PSModulePath=" && ' .. shell .. ' -NoProfile -ExecutionPolicy Bypass -File "' .. script .. '" -Name '
 			.. tool.name .. " -Version " .. tool.version .. " -Url " .. tool.url .. " -Sha256 " .. tool.sha256)
 		if not ok then
 			error("Fetching " .. tool.name .. " " .. tool.version .. " into " .. root .. " failed (above); " .. otherwise .. ".")
