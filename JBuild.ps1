@@ -28,7 +28,7 @@ param(
     [string] $BuildSystem = '',
 
     # Empty offers an interactive menu (what a double-click with no args gets); a value skips it.
-    [ValidateSet('', '2017', '2019', '2022')]
+    [ValidateSet('', '2017', '2019', '2022', '2026')]
     [string] $VisualStudio = '',
 
     [string] $Toolset = 'v143',
@@ -111,6 +111,13 @@ $premakeVersion = (Select-String -Path (Join-Path $PSScriptRoot 'make\premake.sh
     Select-Object -First 1).Matches.Groups[1].Value.Trim()
 $premake = Join-Path $PSScriptRoot "tools\premake\$premakeVersion\premake5.exe"
 $consumerPremake = $Root
+
+# A Visual Studio's own toolset when -Toolset was not given: v145 for 2026, else v143 (the parameter's default).
+$toolsetGiven = $PSBoundParameters.ContainsKey('Toolset')
+function Set-DefaultToolset {
+    if ($toolsetGiven) { return }
+    $script:Toolset = if ($VisualStudio -eq '2026') { 'v145' } else { 'v143' }
+}
 
 # The premake option flags (everything except the vsNNNN action), from the params/menu choices. Shared by
 # the pre-generate summary and the real generation so the two can never disagree.
@@ -370,10 +377,17 @@ if (-not (Test-Path -LiteralPath $premake)) {
 if (-not $hasPremake) { Write-Error "Build system 'premake' chosen, but no premake5.lua at '$Root'."; exit 1 }
 
 # The solution generated before, if any: in .jbuild (the convention, location ".jbuild"), then the repo root.
-function Find-Solution {
-    return @(
-        @(Get-ChildItem -LiteralPath (Join-Path $Root '.jbuild') -Filter *.sln -File -EA SilentlyContinue) +
-        @(Get-ChildItem -LiteralPath $Root -Filter *.sln -File -EA SilentlyContinue)) | Select-Object -First 1
+# Visual Studio 2026's is a .slnx (XML), every earlier one's a .sln, and one of each may sit side by side after
+# generating for both: given a Visual Studio, only its format counts; given none, the one written last.
+# (-Filter *.sln also matches .slnx - a three-letter extension pattern does - hence the exact check.)
+function Find-Solution([string]$ForVisualStudio = '') {
+    $extensions = if ($ForVisualStudio -eq '2026') { @('.slnx') } elseif ($ForVisualStudio) { @('.sln') } else { @('.sln', '.slnx') }
+    foreach ($folder in (Join-Path $Root '.jbuild'), $Root) {
+        $found = @(Get-ChildItem -LiteralPath $folder -Filter *.sln* -File -EA SilentlyContinue |
+            Where-Object { $extensions -contains $_.Extension } | Sort-Object LastWriteTime -Descending)
+        if ($found) { return $found[0] }
+    }
+    return $null
 }
 
 # Cleaning is of what the solution there builds, so it is not generated again; its Visual Studio is read from it,
@@ -384,26 +398,35 @@ if ($Action -eq 'Clean') {
     if (-not $existing) { Write-Host "$(Tag 'clean' '0;33') no solution has been generated under '$Root', so there is nothing to clean"; exit 0 }
     $skipGenerate = $true
     if (-not $VisualStudio) {
-        $major = [regex]::Match((Get-Content -LiteralPath $existing.FullName -Raw), '(?m)^VisualStudioVersion\s*=\s*(\d+)\.').Groups[1].Value
-        $VisualStudio = switch ($major) { '15' { '2017' } '16' { '2019' } default { '2022' } }
+        if ($existing.Extension -eq '.slnx') { $VisualStudio = '2026' }
+        else {
+            $major = [regex]::Match((Get-Content -LiteralPath $existing.FullName -Raw), '(?m)^VisualStudioVersion\s*=\s*(\d+)\.').Groups[1].Value
+            $VisualStudio = switch ($major) { '15' { '2017' } '16' { '2019' } default { '2022' } }
+        }
     }
 }
 
 # No VS version chosen (e.g. a double-click with no args): offer a menu. In a non-interactive context
 # (piped / CI, where stdin is redirected) fall back to the newest so a prompt never hangs the run.
 if (-not $VisualStudio) {
-    $versions = @('2022', '2019', '2017')
+    # Newest first; 2022 stays the default. 2026 brings its own toolset, v145 (Set-DefaultToolset), and has not
+    # been tried on an installation of it yet.
+    $versions = @('2026', '2022', '2019', '2017')
+    $defaultVersion = '2022'
+    $notes = @{ '2026' = '  (should work - untested)' }
     if ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
         # --- Visual Studio version ---
         Write-Host ''
         Write-Host (Paint 'Generate for which Visual Studio?' '1;36')
         for ($i = 0; $i -lt $versions.Count; $i++) {
-            Write-Host ("  {0} Visual Studio {1}{2}" -f (Paint ("[{0}]" -f ($i + 1)) '0;36'), $versions[$i], $(if ($i -eq 0) { Paint '  (default)' '0;32' } else { '' }))
+            $mark = if ($versions[$i] -eq $defaultVersion) { Paint '  (default)' '0;32' } elseif ($notes[$versions[$i]]) { Paint $notes[$versions[$i]] '0;33' } else { '' }
+            Write-Host ("  {0} Visual Studio {1}{2}" -f (Paint ("[{0}]" -f ($i + 1)) '0;36'), $versions[$i], $mark)
         }
-        $pick = Read-Choice 'Enter 1-3 (or press Enter for the default)' 3
-        if ([string]::IsNullOrWhiteSpace($pick)) { $VisualStudio = $versions[0] }
-        elseif ($pick -match '^[1-3]$')          { $VisualStudio = $versions[[int]$pick - 1] }
+        $pick = Read-Choice "Enter 1-$($versions.Count) (or press Enter for the default)" $versions.Count
+        if ([string]::IsNullOrWhiteSpace($pick)) { $VisualStudio = $defaultVersion }
+        elseif ($pick -match '^\d+$' -and [int]$pick -ge 1 -and [int]$pick -le $versions.Count) { $VisualStudio = $versions[[int]$pick - 1] }
         else { Write-Error "Not a choice: '$pick'."; exit 1 }
+        Set-DefaultToolset
 
         # --- optional extra options ---
         # Only the knobs the consumer's premake actually declares are offered, so we never pass an unknown
@@ -520,8 +543,9 @@ if (-not $VisualStudio) {
             # (Building is offered after generation, where the configurations/platforms are read from the .sln.)
         }
     }
-    else { $VisualStudio = $versions[0] }
+    else { $VisualStudio = $defaultVersion }
 }
+Set-DefaultToolset
 
 if (-not $skipGenerate) {
     $arguments = @("vs$VisualStudio") + (Get-OptionArgs)
@@ -540,21 +564,29 @@ if (-not $skipGenerate) {
 }
 
 # DISCOVER the generated solution - its name is the premake workspace's, written to location().
-$solution = Find-Solution
-if (-not $solution) { Write-Error "premake generated no .sln under '$Root' (or its .jbuild\)."; exit 1 }
+$solution = Find-Solution $VisualStudio
+if (-not $solution) { Write-Error "premake generated no $(if ($VisualStudio -eq '2026') { '.slnx' } else { '.sln' }) under '$Root' (or its .jbuild\)."; exit 1 }
 Write-Host "$(Tag 'solution' '0;36') $($solution.FullName)"
 
 # ---- optional build ----
 # The configurations and platforms come from the generated solution itself (ground truth for what's
 # supported - a consumer may define more than Debug/Release, or be one platform only).
-$slnText = Get-Content -LiteralPath $solution.FullName -Raw
-$slnPairs = [regex]::Matches($slnText, '(?m)^\s*(\w+)\|(\w+)\s*=\s*\1\|\2\s*$')
-$slnConfigs   = @($slnPairs | ForEach-Object { $_.Groups[1].Value }) | Sort-Object -Unique
+if ($solution.Extension -eq '.slnx') {
+    $slnx = [xml](Get-Content -LiteralPath $solution.FullName -Raw)
+    $slnConfigNames   = @($slnx.Solution.Configurations.BuildType | ForEach-Object { $_.Name })
+    $slnPlatformNames = @($slnx.Solution.Configurations.Platform | ForEach-Object { $_.Name })
+} else {
+    $slnText = Get-Content -LiteralPath $solution.FullName -Raw
+    $slnPairs = [regex]::Matches($slnText, '(?m)^\s*(\w+)\|(\w+)\s*=\s*\1\|\2\s*$')
+    $slnConfigNames   = @($slnPairs | ForEach-Object { $_.Groups[1].Value })
+    $slnPlatformNames = @($slnPairs | ForEach-Object { $_.Groups[2].Value })
+}
+$slnConfigs   = @($slnConfigNames | Where-Object { $_ }) | Sort-Object -Unique
 # Build-menu order, NOT alphabetical: x86 (Win32) is the standing default (index 0), then x64, then the ARM
 # platforms - so a solution that contains ARM doesn't default to building the dead 32-bit ARM. Anything a
 # consumer names outside this list sorts alphabetically after the known four.
 $platOrder = @('Win32', 'x64', 'ARM', 'ARM64')
-$slnPlatforms = @($slnPairs | ForEach-Object { $_.Groups[2].Value } | Sort-Object -Unique |
+$slnPlatforms = @($slnPlatformNames | Where-Object { $_ } | Sort-Object -Unique |
     Sort-Object @{ Expression = { $i = $platOrder.IndexOf($_); if ($i -lt 0) { 99 } else { $i } } }, @{ Expression = { $_ } })
 if (-not $slnConfigs)   { $slnConfigs   = @('Release') }
 if (-not $slnPlatforms) { $slnPlatforms = @('Win32') }
@@ -611,7 +643,7 @@ if (-not (Test-Path -LiteralPath $vswhere)) {
 # Community/Professional/Enterprise unless told -products *, so Build Tools for Visual Studio was never seen at all.
 # Every installation is considered, the one generated for (by version) first, and one counts only if its MSBuild
 # has $Toolset under VC\v*\Platforms\*\PlatformToolsets - the folder MSBuild itself looks in.
-$vsRanges = @{ '2017' = 15; '2019' = 16; '2022' = 17 }
+$vsRanges = @{ '2017' = 15; '2019' = 16; '2022' = 17; '2026' = 18 }
 # Out-String: vswhere's lines as one JSON text. ForEach-Object: Windows PowerShell 5.1's ConvertFrom-Json passes a
 # JSON array on as ONE object (7 unrolls it), which then sorted as an array and failed to cast to [version].
 $instances = @(& $vswhere -all -products * -requires Microsoft.Component.MSBuild -format json | Out-String | ConvertFrom-Json | ForEach-Object { $_ })
@@ -627,9 +659,12 @@ if ($chosen) {
 }
 if (-not $msbuild) {
     $found = ($instances | ForEach-Object { "$($_.displayName) $($_.installationVersion)" }) -join '; '
+    # The installer names a toolset's component after the Visual Studio it came with, whichever installs it.
+    $toolsetVs = @{ 'v141_xp' = '2017'; 'v141' = '2017'; 'v142' = '2019'; 'v143' = '2022'; 'v145' = '2026' }[$Toolset]
+    if (-not $toolsetVs) { $toolsetVs = $VisualStudio }
     Write-Error ("No Visual Studio here has the $Toolset build tools (found: $(if ($found) { $found } else { 'none' })). " +
         "Add them with the Visual Studio Installer: Modify > Individual components > " +
-        "'MSVC $Toolset - VS $VisualStudio C++ x64/x86 build tools'. Or build from Visual Studio instead.")
+        "'MSVC $Toolset - VS $toolsetVs C++ x64/x86 build tools'. Or build from Visual Studio instead.")
     exit 1
 }
 Write-Host "$(Tag 'build' '0;36') $msbuild"

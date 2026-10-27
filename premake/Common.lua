@@ -62,7 +62,7 @@ function jbuild_nasm()
 end
 
 -- v141_xp targets Windows XP and later but is not in VS2022; it comes from VS2017's targets, and MSBuild
--- reports MSB8020 without it. v143 targets Windows 10 and later.
+-- reports MSB8020 without it. v143 and v145 (Visual Studio 2026's) target Windows 10 and later.
 function common_options(defaultToolset)
 	newoption {
 		trigger = "toolset",
@@ -71,7 +71,8 @@ function common_options(defaultToolset)
 		default = defaultToolset or "v141_xp",
 		allowed = {
 			{ "v141_xp", "Visual Studio 2017 - targets Windows XP and later" },
-			{ "v143",    "Visual Studio 2022 - targets Windows 10 and later" }
+			{ "v143",    "Visual Studio 2022 - targets Windows 10 and later" },
+			{ "v145",    "Visual Studio 2026 - targets Windows 10 and later" }
 		}
 	}
 
