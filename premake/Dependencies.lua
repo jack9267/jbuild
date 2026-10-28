@@ -56,7 +56,7 @@ function dependencies_workspace()
 		"$(dxsdk_dir)\\include",
 		"$(jdependencies_home)\\include",
 		"$(jdependencies_home)\\include\\mongoose6",
-		"$(jdependencies_home)\\include\\lua5.3"
+		"$(jdependencies_home)\\include\\lua5.4"
 	}
 
 	libdirs {

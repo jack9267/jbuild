@@ -19,7 +19,7 @@ endif
 DEPLIB := $(DEPS)/Lib/$(PLATFORM)/$(CONFIG_DIR)
 
 # Root include tree plus the two explicit subdirs j-dependencies.cmake adds.
-INCLUDES += -I$(DEPS)/include -I$(DEPS)/include/mongoose6 -I$(DEPS)/include/lua5.3
+INCLUDES += -I$(DEPS)/include -I$(DEPS)/include/mongoose6 -I$(DEPS)/include/lua5.4
 
 # SDL2 headers - the engine includes <SDL_scancode.h> etc. directly. sdl2-config
 # finds the active install (source build in /usr/local, or the system package).
