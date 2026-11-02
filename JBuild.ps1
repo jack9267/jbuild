@@ -18,7 +18,13 @@
 
 .PARAMETER Build
     Also build the generated solution with MSBuild after generating.
+
+.PARAMETER PremakeArgs
+    Everything else on the command line - a consumer's own premake options, e.g.
+    `JBuild.cmd --rpf-key-header=RpfKeyData.local.h` - is passed to premake as it is, after jbuild's own.
 #>
+# No positional binding: a consumer option such as --rpf-key-header=x would otherwise land in -Root.
+[CmdletBinding(PositionalBinding = $false)]
 param(
     [string] $Root = (Split-Path $PSScriptRoot -Parent),
 
@@ -79,10 +85,25 @@ param(
 
     # SpiderMonkey ESR the JS backend links against ($(jspidermonkey_home)\esr<NN>); empty keeps
     # the consumer premake5.lua's default. Mirrors the engine's -DSPIDERMONKEY_VERSION.
-    [string] $SpiderMonkeyVersion = ''
+    [string] $SpiderMonkeyVersion = '',
+
+    # Anything not named above, passed to premake unchanged: a consumer's own options (--rpf-key-header=...).
+    [Parameter(ValueFromRemainingArguments = $true)]
+    [string[]] $PremakeArgs = @()
 )
 
 $ErrorActionPreference = 'Stop'
+
+# PowerShell reads an argument that starts with '-' and has a ':' in it as -name:value and splits it there,
+# dropping the colon, before this script sees it: --test-dat16=C:\x arrives as '--test-dat16=C' and '\x'. Put
+# such pairs back together. An item not starting with '-' after a --option can only be one of these halves -
+# premake is never handed loose arguments.
+$joined = @()
+foreach ($a in $PremakeArgs) {
+    if ($joined.Count -gt 0 -and $a -notlike '-*' -and $joined[-1] -like '--*') { $joined[-1] += ":$a" }
+    else { $joined += $a }
+}
+$PremakeArgs = $joined
 
 # Colorized output in the style of the makefiles' CMake-like tags (make/common.mk: green [CXX], cyan [AR],
 # bold-blue [LINK]). Dropped when NO_COLOR is set or output is redirected (CI logs / dumb terminals).
@@ -133,6 +154,7 @@ function Get-OptionArgs {
     if ($CrtDebug)               { $a += "--crt-debug=$($CrtDebug.ToLower())" }
     if ($YYThunksTLS)            { $a += "--yy-thunks-tls=$($YYThunksTLS.ToLower())" }
     if ($SpiderMonkeyVersion)    { $a += "--spidermonkey-version=$SpiderMonkeyVersion" }
+    if ($PremakeArgs)            { $a += $PremakeArgs }
     return $a
 }
 

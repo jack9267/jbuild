@@ -17,6 +17,10 @@ Double-click a consumer's `JBuild.cmd` and it asks what to do:
 The same from a command line: `JBuild.cmd -Action Configure|Build|BuildAll|Rebuild|Clean`, with
 `-VisualStudio 2022`, `-Configuration Debug` and `-Platform x64` to skip the other questions.
 
+A repository's own premake options go on the same line and are passed to premake as they are, after
+jbuild's: `JBuild.cmd --rpf-key-header=C:\Keys\Key.h`. (PowerShell splits such an argument at its colon on
+the way in; JBuild.ps1 puts it back together.)
+
 ## premake/
 
 The premake5 modules. premake itself is fetched on first use into `tools/premake/<version>/` (by `JBuild.ps1`
