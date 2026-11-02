@@ -33,12 +33,11 @@ function modlauncher_links(modules)
 	links (all)
 end
 
--- xlive.dll, the Games for Windows - LIVE replacement, which has to sit beside whatever loads it.
--- copy_single_dependency, not copy_dependency: ITS NAME DOES NOT CHANGE between builds (no _d, no _x64),
--- only the directory it comes from.
+-- xlive.dll, the Games for Windows - LIVE replacement, which has to sit beside whatever loads it. Named like any
+-- other DLL (xlive_d.dll, xlive_x64.dll...); the game still imports xlive.dll, and HackSupport, which resolves
+-- the game's imports itself, gives it the one its own build goes with.
 function modlauncher_copy_xlive()
-	copy_single_dependency(MODLAUNCHER_LIBS, "xlive.dll")
-	copy_single_dependency(MODLAUNCHER_LIBS, "xlive.pdb")
+	copy_dependency(MODLAUNCHER_LIBS, "xlive")
 end
 
 -- ModLauncher's Updater (Updater_d.exe in Debug), which a launcher runs to replace itself. An exe, so not
