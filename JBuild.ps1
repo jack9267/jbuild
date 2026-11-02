@@ -439,10 +439,16 @@ if (-not $VisualStudio) {
         if ($gate.KeyChar -eq 'o' -or $gate.KeyChar -eq 'O') {
             # Scan the consumer's premake dir AND jbuild's own - the shared jbuild modules (XP.lua /
             # Common.lua, declaring support-winxp / use-msvcrt / crt / ...) live there, so options defined
-            # in the jbuild submodule are still discovered.
+            # in the jbuild submodule are still discovered. Only the jbuild modules the consumer INCLUDES,
+            # though: SpiderMonkey.lua declares --spidermonkey-version, which a consumer without it would
+            # reject as an unknown option. A consumer naming none of them by path gets them all, as before.
+            $consumerLua = @(Get-ChildItem $Root -Filter *.lua -EA SilentlyContinue)
+            $included = @($consumerLua | Select-String -Pattern 'jbuild/premake/(\w+)\.lua' -AllMatches |
+                ForEach-Object { $_.Matches } | ForEach-Object { $_.Groups[1].Value + '.lua' }) | Sort-Object -Unique
+            $jbuildLua = @(Get-ChildItem $jbuildPremake -Filter *.lua -EA SilentlyContinue)
+            if ($included) { $jbuildLua = @($jbuildLua | Where-Object { $included -contains $_.Name }) }
             $declared = @(
-                (@(Get-ChildItem $Root -Filter *.lua -EA SilentlyContinue) +
-                 @(Get-ChildItem $jbuildPremake -Filter *.lua -EA SilentlyContinue)) |
+                ($consumerLua + $jbuildLua) |
                 Select-String -Pattern 'trigger\s*=\s*"([^"]+)"' -AllMatches |
                 ForEach-Object { $_.Matches } | ForEach-Object { $_.Groups[1].Value }) | Sort-Object -Unique
 
@@ -456,8 +462,11 @@ if (-not $VisualStudio) {
                     # mark the consumer's own declared default (premake5.lua's spidermonkey-version default)
                     $smDefault = $null
                     $pml = Join-Path $Root 'premake5.lua'
-                    if ((Test-Path -LiteralPath $pml) -and
-                        ((Get-Content -LiteralPath $pml -Raw) -match '(?s)spidermonkey-version.*?default\s*=\s*"(\d+)"')) { $smDefault = $Matches[1] }
+                    $sml = Join-Path $jbuildPremake 'SpiderMonkey.lua'   # where it is declared, unless the consumer does
+                    foreach ($f in @($pml, $sml)) {
+                        if (-not $smDefault -and (Test-Path -LiteralPath $f) -and
+                            ((Get-Content -LiteralPath $f -Raw) -match '(?s)spidermonkey-version.*?default\s*=\s*"(\d+)"')) { $smDefault = $Matches[1] }
+                    }
                     Write-Host ''
                     Write-Host (Paint "SpiderMonkey ESR (installed under $env:jspidermonkey_home):" '1;36')
                     for ($i = 0; $i -lt $esr.Count; $i++) {

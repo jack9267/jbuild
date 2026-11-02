@@ -24,6 +24,13 @@ macro(target_link_spidermonkey NAME)
 		target_link_libraries(${NAME} PRIVATE kernel32)
 	endif()
 
+	if(MSVC AND SPIDERMONKEY_VERSION GREATER_EQUAL 102)
+		# esr102's js/ProtoKey.h nests argument macros that MSVC's traditional preprocessor mis-expands (a
+		# malformed JSProtoKey enum in jspubtd.h, which jsapi.h includes) - any target including the JS headers
+		# needs the conformant one, as Mozilla's own clang-cl build has. Kept in step with premake/SpiderMonkey.lua.
+		target_compile_options(${NAME} PRIVATE /Zc:preprocessor)
+	endif()
+
 	if(MSVC AND SPIDERMONKEY_VERSION GREATER_EQUAL 140)
 		# esr140's bundled {fmt} headers require /utf-8, and mozilla/UniquePtrExtensions.h needs XP_WIN defined
 		# (see src/JSScripting/CMakeLists.txt) - any target that includes the JS headers directly needs both too.

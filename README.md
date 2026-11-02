@@ -30,6 +30,8 @@ include "Galactic.lua"      -- linking an INSTALLED Galactic (headers + Lib/<pla
 include "Warnings.lua"
 include "XP.lua"            -- Windows XP via VC-LTL5 + YY-Thunks
 include "Signing.lua"       -- signing_workspace(): sign every .exe/.dll when the certificate is here
+include "ModLauncher.lua"   -- the %jmodlauncher_home% tree: its libraries, xlive.dll and Updater
+include "SpiderMonkey.lua"  -- --spidermonkey-version; the SDK, the switches its headers need, mozjs-<NN>.dll
 ```
 
 `XP.lua`'s `xp_options { supportWinXP = ..., useMsvcrt = ... }`:
