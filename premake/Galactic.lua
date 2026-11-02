@@ -62,6 +62,7 @@ local coreStatic = {
 	"zlib_static",
 	"png_static",
 	"bzip2_static",
+	"zstd_static",
 	"tinyxml_static",
 	"freetype_static",
 }
