@@ -171,14 +171,15 @@ function xp_options(defaults)
 		}
 	}
 
-	-- XP's loader never patches a LoadLibrary'd module's _tls_index, so its thread_local reads garbage.
-	-- Off because Common.lua already fixes that from the other end for everything non-executable, with
-	-- /Zc:threadSafeInit-. On for a DLL with real thread_local of its own; note it takes an entry point
-	-- that is not the CRT's.
+	-- XP's loader never gives a LoadLibrary'd module a TLS index of its own: its _tls_index stays 0, the slot of
+	-- whatever the process started with, so its thread-local data lands in the executable's. Common.lua's
+	-- /Zc:threadSafeInit- only keeps function statics out of TLS; a DLL still has thread-local data, VC-LTL's
+	-- per-thread C runtime state among it (seen 2026-11-04: an injected DLL's overwrote GTA IV's, which crashed).
+	-- So on by default; it takes an entry point that is not the CRT's, which hands the CRT's on.
 	newoption {
 		trigger = "yy-thunks-tls",
 		value = "VALUE",
-		default = defaults.yyThunksTLS,
+		default = defaults.yyThunksTLS or "on",
 		description = "Let YY-Thunks initialise a DLL's own TLS on XP",
 		allowed = {
 			{ "on",  "/ENTRY:DllMainCRTStartupForYY_Thunks on every SharedLib" },
