@@ -46,6 +46,18 @@ ifneq ($(wildcard /opt/vc/include/bcm_host.h),)
   PI_LDLIBS  := -lopenmaxil -lbcm_host -lvcos -lvchiq_arm
 endif
 
+# TLS: on Linux, LibreSSL from the Dependencies build, static (ssl_static, crypto_static, as macOS has it),
+# so a program runs on a machine without the libssl packages, and curl the same way (CURL_LDLIBS, which a
+# consumer puts before TLS_LDLIBS).
+# FreeBSD keeps its base system's OpenSSL, and Android the libraries it always had.
+ifeq ($(HOST_OS),Linux)
+  TLS_LDLIBS := -lssl_static -lcrypto_static
+  CURL_LDLIBS := -lcurl_static
+else
+  TLS_LDLIBS := -lssl -lcrypto
+  CURL_LDLIBS := -lcurl
+endif
+
 # Link fragments for a consumer that links the deps directly (galactic.mk wraps
 # the static ones in its own link group together with Galactic_static).
 DEP_LDFLAGS := -L$(DEPLIB) $(PI_LDFLAGS)
@@ -55,4 +67,4 @@ ifeq ($(PLATFORM),freebsd)
   DEP_LDFLAGS += -L$(FREEBSD_LOCAL)/lib -Wl,-rpath-link,$(FREEBSD_LOCAL)/lib
 endif
 DEP_LDLIBS  := -lzlib_static -lbzip2_static -lzstd_static -lpng_static -ljpeg_static -ltinyxml_static \
-               -lssl -lcrypto -lSDL2 -ldl -lpthread $(PI_LDLIBS)
+               $(TLS_LDLIBS) -lSDL2 -ldl -lpthread $(PI_LDLIBS)

@@ -153,6 +153,14 @@ build, install, and link, across three generators that must stay in lockstep. Th
   virtio disk (`tar -xf /dev/vtbd1`). It boots in about a minute without KVM. Not tried: a build on FreeBSD
   itself (gmake, base cc), and arm64.
 
+## Linux links LibreSSL and curl statically (2026-11-05)
+- **`make/dependencies.mk`'s `TLS_LDLIBS` and `CURL_LDLIBS`**: on Linux `-lssl_static -lcrypto_static` and
+  `-lcurl_static`, from the Dependencies build (which builds them for Linux since then), so a program runs on a
+  server without the libssl/libcurl packages; elsewhere `-lssl -lcrypto` and `-lcurl`, as before (FreeBSD's base
+  OpenSSL, Android's). `galactic.mk`'s and `dependencies.mk`'s link lists use `TLS_LDLIBS`; a consumer's own link line
+  puts `$(CURL_LDLIBS)` before it. make only: premake's Linux output is the make fragments, and cmake has no Linux
+  link list of its own here.
+
 ## SpiderMonkey consumption
 - Choose the ESR with `SPIDERMONKEY_VERSION` (CMake `-D`) / `--spidermonkey-version` (premake); it drives the
   SDK subdir (`esr<NN>`) and the lib name (`mozjs-<NN>`). `jspidermonkey_home` points at the SDK root

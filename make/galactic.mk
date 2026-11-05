@@ -61,5 +61,5 @@ else
   GALACTIC_LDLIBS := -Wl,--start-group \
                        -lGalactic_static -lzlib_static -lbzip2_static -lzstd_static -lpng_static -ljpeg_static -ltinyxml_static \
                      -Wl,--end-group \
-                     -lssl -lcrypto -lSDL2 -ldl -lpthread $(PI_LDLIBS)
+                     $(TLS_LDLIBS) -lSDL2 -ldl -lpthread $(PI_LDLIBS)
 endif
