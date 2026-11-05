@@ -207,7 +207,11 @@ function common_workspace()
 		"_CRT_SECURE_NO_WARNINGS",
 		"_USE_MATH_DEFINES=1",
 		"PSAPI_VERSION=1",
-		"_WINSOCK_DEPRECATED_NO_WARNINGS"
+		"_WINSOCK_DEPRECATED_NO_WARNINGS",
+		-- A failed STL check (_STL_VERIFY) calls abort(), not _invoke_watson: _invoke_watson fails fast,
+		-- past any invalid parameter handler and the unhandled exception filter, so a crash handler never
+		-- saw it and the program just vanished. abort() raises SIGABRT, which a crash handler can catch.
+		"_MSVC_STL_USE_ABORT_AS_DOOM_FUNCTION"
 	}
 
 	-- Workspace scope, searched BEFORE anything a project links: the linker takes the first
