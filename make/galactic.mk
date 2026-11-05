@@ -52,14 +52,14 @@ ifeq ($(HOST_OS),Darwin)
   # build self-contained - no Homebrew/vcpkg. A static SDL2 pulls in these system frameworks; an
   # unused -framework / -l is harmless, so listing them keeps both the headless tools and a windowed
   # consumer linking.
-  GALACTIC_LDLIBS := -lGalactic_static -lzlib_static -lbzip2_static -lzstd_static -lpng_static -ltinyxml_static \
+  GALACTIC_LDLIBS := -lGalactic_static -lzlib_static -lbzip2_static -lzstd_static -lpng_static -ljpeg_static -ltinyxml_static \
                      -lssl_static -lcrypto_static -lSDL2_static \
                      -framework Cocoa -framework IOKit -framework CoreVideo -framework CoreAudio \
                      -framework AudioToolbox -framework ForceFeedback -framework Carbon \
                      -framework Metal -framework GameController -framework CoreHaptics -liconv
 else
   GALACTIC_LDLIBS := -Wl,--start-group \
-                       -lGalactic_static -lzlib_static -lbzip2_static -lzstd_static -lpng_static -ltinyxml_static \
+                       -lGalactic_static -lzlib_static -lbzip2_static -lzstd_static -lpng_static -ljpeg_static -ltinyxml_static \
                      -Wl,--end-group \
                      -lssl -lcrypto -lSDL2 -ldl -lpthread $(PI_LDLIBS)
 endif

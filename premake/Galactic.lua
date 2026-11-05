@@ -61,6 +61,7 @@ local coreStatic = {
 	"SDL2",
 	"zlib_static",
 	"png_static",
+	"jpeg_static",
 	"bzip2_static",
 	"zstd_static",
 	"tinyxml_static",

@@ -40,5 +40,5 @@ endif
 # Link fragments for a consumer that links the deps directly (galactic.mk wraps
 # the static ones in its own link group together with Galactic_static).
 DEP_LDFLAGS := -L$(DEPLIB) $(PI_LDFLAGS)
-DEP_LDLIBS  := -lzlib_static -lbzip2_static -lzstd_static -lpng_static -ltinyxml_static \
+DEP_LDLIBS  := -lzlib_static -lbzip2_static -lzstd_static -lpng_static -ljpeg_static -ltinyxml_static \
                -lssl -lcrypto -lSDL2 -ldl -lpthread $(PI_LDLIBS)
