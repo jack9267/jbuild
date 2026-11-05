@@ -57,7 +57,7 @@ local coreStatic = {
 	-- SDL2 IS THE ONE TAKEN AS A DLL. Both are installed, and the import library is SDL2.lib in BOTH
 	-- configurations, so this one name is right everywhere - only the DLL changes name (copy_dependency's
 	-- job). It costs the binary its self-containment: anything linking Galactic needs SDL2.dll beside it
-	-- at RUN time, wherever it ends up.
+	-- at RUN time, wherever it ends up. galactic_links' options.staticSDL takes SDL2_static instead.
 	"SDL2",
 	"zlib_static",
 	"png_static",
@@ -90,7 +90,10 @@ local moduleSystem = {
 -- ORDER IS LOAD-BEARING, which is why this is a function rather than a list to copy: the linker
 -- takes the first definition it finds, so modules come before the engine they call into and every
 -- static library before the import libraries.
-function galactic_links(modules)
+--
+-- options.staticSDL links SDL2_static in place of the SDL2 DLL, for a program that must run alone - from
+-- the build tree, or as one self-contained exe (the tools, an installer).
+function galactic_links(modules, options)
 	local all = {}
 
 	for _, name in ipairs(modules or {}) do
@@ -98,6 +101,9 @@ function galactic_links(modules)
 	end
 
 	for _, name in ipairs(coreStatic) do
+		if name == "SDL2" and options and options.staticSDL then
+			name = "SDL2_static"
+		end
 		table.insert(all, name)
 	end
 
