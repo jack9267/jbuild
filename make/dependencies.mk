@@ -25,7 +25,16 @@ INCLUDES += -I$(DEPS)/include -I$(DEPS)/include/mongoose6 -I$(DEPS)/include/lua5
 # finds the active install (source build in /usr/local, or the system package).
 # Not when cross-compiling for Android: those would be the build machine's headers. There the
 # Dependencies include tree carries SDL's headers itself.
-ifneq ($(PLATFORM),android)
+#
+# FreeBSD has OpenSSL in its base system (/usr/include, /usr/lib) but curl and SDL2 are packages
+# (ftp/curl, devel/sdl20) under /usr/local, which its compiler does not search by default - on FreeBSD
+# itself, or in FREEBSD_SYSROOT with the packages unpacked over base.txz when cross-compiling.
+ifeq ($(PLATFORM),freebsd)
+FREEBSD_LOCAL := $(FREEBSD_SYSROOT)/usr/local
+# -idirafter: searched after every -I, so no package's header there (zlib, png, lua...) takes the place of
+# the Dependencies tree's or a repo's own. -D_THREAD_SAFE is what sdl2-config gives there.
+INCLUDES += -idirafter $(FREEBSD_LOCAL)/include/SDL2 -idirafter $(FREEBSD_LOCAL)/include -D_THREAD_SAFE
+else ifneq ($(PLATFORM),android)
 INCLUDES += $(shell sdl2-config --cflags 2>/dev/null || pkg-config --cflags sdl2 2>/dev/null)
 endif
 
@@ -40,5 +49,10 @@ endif
 # Link fragments for a consumer that links the deps directly (galactic.mk wraps
 # the static ones in its own link group together with Galactic_static).
 DEP_LDFLAGS := -L$(DEPLIB) $(PI_LDFLAGS)
+ifeq ($(PLATFORM),freebsd)
+  # The packages' libraries, found again at run time where the package manager put them (its ldconfig
+  # path has /usr/local/lib, but a cross-linked binary is checked against the sysroot's).
+  DEP_LDFLAGS += -L$(FREEBSD_LOCAL)/lib -Wl,-rpath-link,$(FREEBSD_LOCAL)/lib
+endif
 DEP_LDLIBS  := -lzlib_static -lbzip2_static -lzstd_static -lpng_static -ljpeg_static -ltinyxml_static \
                -lssl -lcrypto -lSDL2 -ldl -lpthread $(PI_LDLIBS)

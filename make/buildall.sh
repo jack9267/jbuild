@@ -1,7 +1,8 @@
 #!/bin/sh
 # BuildAll.bat's counterpart off Windows: the consuming repo's Makefile, Release and Debug, for every
 # target this machine can build - macOS, plus iOS and its simulator where Xcode's SDKs are, or the
-# native build elsewhere; Android too when ANDROID_NDK (or ANDROID_NDK_HOME) is set. A repo's
+# native build elsewhere; FreeBSD too when FREEBSD_SYSROOT is set, and Android when ANDROID_NDK (or
+# ANDROID_NDK_HOME) is. A repo's
 # BuildAll.sh is one line calling this from its root.
 set -e
 
@@ -30,6 +31,15 @@ case "$(uname -s)" in
 		build
 		;;
 esac
+
+# On FreeBSD the native build above is FreeBSD's; elsewhere it is cross-compiled when there is a sysroot.
+if [ "$(uname -s)" != FreeBSD ]; then
+	if [ -n "${FREEBSD_SYSROOT:-}" ]; then
+		build TARGET=freebsd
+	else
+		echo "== no FREEBSD_SYSROOT - FreeBSD skipped"
+	fi
+fi
 
 if [ -n "${ANDROID_NDK:-$ANDROID_NDK_HOME}" ]; then
 	build TARGET=android

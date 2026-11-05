@@ -11,6 +11,11 @@
 #  Include AFTER common.mk.
 # =============================================================================
 
+# No SpiderMonkey SDK is built for FreeBSD yet (SpiderMonkeyBuilder makes Windows, Apple and Linux ones), so
+# there it is off unless asked for - JS=1 with an SDK laid out the same way, under Lib/freebsd.
+ifeq ($(PLATFORM),freebsd)
+  JS ?= 0
+endif
 JS                   ?= 1
 SPIDERMONKEY_VERSION ?= 60
 

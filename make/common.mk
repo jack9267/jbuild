@@ -55,8 +55,22 @@ INCROOT ?= include
 # TARGET=android cross-compiles with the Android NDK (ANDROID_NDK, or the usual ANDROID_NDK_HOME),
 # from a macOS or Linux host, for one ABI (arm64-v8a unless ANDROID_ABI says otherwise) and the
 # API level in ANDROID_API. Output goes to Lib/android, like any other platform.
+#
+# TARGET=freebsd builds for FreeBSD, amd64 unless FREEBSD_ARCH says otherwise, for FREEBSD_VERSION (14
+# unless set) and later. On FreeBSD itself it is the default and uses the base system's clang; anywhere
+# else it cross-compiles with the host's clang and lld against FREEBSD_SYSROOT - a FreeBSD base.txz
+# unpacked, with the packages a consumer takes from /usr/local (curl, sdl2) unpacked over it. Output goes
+# to Lib/freebsd. The Makefiles are GNU make's: on FreeBSD run gmake (devel/gmake), not make.
 HOST_OS := $(shell uname -s)
-TARGET  ?= native
+ifeq ($(HOST_OS),FreeBSD)
+  TARGET ?= freebsd
+else
+  TARGET ?= native
+endif
+
+# Linker flags a target needs on every link line (common.mk's and premake.mk's tool templates, and a
+# repo's own link rules): empty but for FreeBSD.
+TARGET_LDFLAGS :=
 
 ifeq ($(TARGET),android)
   ANDROID_NDK ?= $(ANDROID_NDK_HOME)
@@ -92,8 +106,44 @@ ifeq ($(TARGET),android)
   HOST_OS := Android
 endif
 
+ifeq ($(TARGET),freebsd)
+  FREEBSD_VERSION ?= 14
+  FREEBSD_ARCH    ?= x86_64
+  ifeq ($(HOST_OS),FreeBSD)
+    # The base system's compiler, headers and libraries (FREEBSD_SYSROOT's, when it is set).
+    FREEBSD_CC  ?= cc
+    FREEBSD_CXX ?= c++
+    FREEBSD_FLAGS := $(if $(strip $(FREEBSD_SYSROOT)),--sysroot=$(FREEBSD_SYSROOT))
+  else
+    ifeq ($(strip $(FREEBSD_SYSROOT)),)
+      $(error TARGET=freebsd needs FREEBSD_SYSROOT pointing at an unpacked FreeBSD base.txz)
+    endif
+    FREEBSD_CC  ?= clang
+    FREEBSD_CXX ?= clang++
+    # clang's FreeBSD driver picks libc++ (FreeBSD's C++ library) by itself. The linker has to be lld,
+    # FreeBSD's own: the host's GNU ld is the Linux one.
+    FREEBSD_FLAGS  := --target=$(FREEBSD_ARCH)-unknown-freebsd$(FREEBSD_VERSION) --sysroot=$(FREEBSD_SYSROOT)
+    TARGET_LDFLAGS += -fuse-ld=lld
+    AR      := llvm-ar
+    OBJCOPY := llvm-objcopy
+    STRIP   := llvm-strip
+  endif
+  CC  := $(FREEBSD_CC) $(FREEBSD_FLAGS)
+  CXX := $(FREEBSD_CXX) $(FREEBSD_FLAGS)
+  # A library linked but not called is not needed at run time, as Debian's and Ubuntu's toolchains have it
+  # by default: the headless engine links -lSDL2 for one function its programs rarely pull in, and FreeBSD's
+  # SDL2 package brings X11, Mesa and Wayland with it.
+  TARGET_LDFLAGS += -Wl,--as-needed
+  # As for Android: FreeBSD takes the generic Unix branches (--start-group, .debug sidecars), so HOST_OS
+  # names what is built for, whatever machine compiles it.
+  HOST_OS := FreeBSD
+endif
+
 ifeq ($(TARGET),android)
   PLATFORM    := android
+  APPLE_FLAGS :=
+else ifeq ($(TARGET),freebsd)
+  PLATFORM    := freebsd
   APPLE_FLAGS :=
 else ifeq ($(HOST_OS),Darwin)
   ifeq ($(TARGET),ios)
@@ -304,7 +354,7 @@ $$(OBJROOT)/Tools/$(1)/%.o: $$(SRCROOT)/Tools/$(1)/%.cpp
 $$($(1)_BIN): $$($(1)_OBJS) $$(TOOL_DEPS)
 	@mkdir -p $$(dir $$@)
 	$(ECHO) '$(_C_LINK)[LINK]$(_C_OFF) %s\n' '$$(@F)'
-	$(Q)$$(CXX) $$(CXXFLAGS_CONFIG) $(APPLE_FLAGS) $$($(1)_OBJS) $$(TOOL_LDFLAGS) $$(TOOL_LDLIBS) $$(LDFLAGS_EXTRA) -o $$@
+	$(Q)$$(CXX) $$(CXXFLAGS_CONFIG) $(APPLE_FLAGS) $$(TARGET_LDFLAGS) $$($(1)_OBJS) $$(TOOL_LDFLAGS) $$(TOOL_LDLIBS) $$(LDFLAGS_EXTRA) -o $$@
 	$$(call split_debug,$$@)
 endef
 

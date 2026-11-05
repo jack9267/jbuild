@@ -118,6 +118,41 @@ build, install, and link, across three generators that must stay in lockstep. Th
 - This is the engine/tool side only. Producing the `mozjs-<NN>.dll` that those binaries load is a *separate*
   repo (SpiderMonkeyBuilder) with its own XP method and its own hard-won gotchas.
 
+## FreeBSD (`make TARGET=freebsd`, 2026-11-05)
+- **A `make/` target only**, like Android (cmake has neither). `common.mk` sets `PLATFORM := freebsd` (output in
+  `Lib/freebsd`, `Bin/freebsd`) and `HOST_OS := FreeBSD`, so every Makefile takes its generic Unix branches
+  (`--start-group`, `.debug` sidecars); `premake.mk` writes the fragment with premake's `--os=bsd`, so a
+  consumer's `systems` lists name it `"bsd"`. On a FreeBSD machine it is the default target and uses the base
+  `cc`/`c++`; run the Makefiles with **gmake** (FreeBSD's make is not GNU make). Anywhere else it cross-compiles:
+  `make TARGET=freebsd FREEBSD_SYSROOT=<dir>` with the host's clang (`--target=x86_64-unknown-freebsd14
+  --sysroot=<dir>`; `FREEBSD_ARCH`, `FREEBSD_VERSION` change it), lld (`-fuse-ld=lld`, in `TARGET_LDFLAGS`, which
+  every link line carries - a consumer's own link rule must add it too) and llvm-ar/objcopy/strip. clang's
+  FreeBSD driver already picks libc++.
+- **What comes from where**: OpenSSL is FreeBSD's base (`-lssl -lcrypto`, as Linux takes the system's); curl and
+  SDL2 are packages (`pkg install curl sdl2`) under `/usr/local`, which FreeBSD's compiler does not search -
+  `dependencies.mk` adds `$(FREEBSD_SYSROOT)/usr/local/{include,include/SDL2,lib}`. So a sysroot is FreeBSD's
+  `base.txz` unpacked, with those two packages unpacked over it. `JS` defaults to 0
+  there (`spidermonkey.mk`): no SpiderMonkey SDK is built for FreeBSD.
+- **`-Wl,--as-needed` on every FreeBSD link** (`TARGET_LDFLAGS`), as Debian's and Ubuntu's toolchains do by default:
+  the headless engine links `-lSDL2` for one function its programs do not pull in, and FreeBSD's SDL2 package
+  needs X11, Mesa and Wayland. So SDL2 is needed to link, not to run - the programs' `NEEDED` is base plus libcurl.
+- **The sysroot** (2026-11-05, FreeBSD 14.5): `base.txz` from download.freebsd.org/releases/amd64/14.5-RELEASE
+  (checked against its `MANIFEST`), `tar -xJf base.txz -C <dir> ./usr/include ./usr/lib ./lib`; then the `curl`
+  and `sdl2` packages from pkg.freebsd.org/FreeBSD:14:amd64/quarterly, with curl's dependencies (brotli,
+  libidn2, liblz4, libnghttp2, libpsl, libssh2, libunistring, zstd; resolved from the repository's
+  `packagesite.pkg`, a zstd tar of one JSON object a line: `deps`, `repopath`), each `.pkg` a zstd tar unpacked
+  over `<dir>` (`tar --zstd -xf X.pkg -C <dir> --exclude='+*'`). sdl2's own dependencies are not needed to link:
+  lld does not load a shared library's `NEEDED`. libc.so's linker script names `/lib/libc.so.7`; lld finds it
+  in the sysroot.
+- **Linked and run** (2026-11-05): Dependencies, Galactic's headless libraries, tools and UnitTests, and a server
+  program built on them, cross-linked from Linux Release and Debug, then run on FreeBSD 14.5 in QEMU (software
+  emulation; the official `FreeBSD-14.5-RELEASE-amd64-ufs.qcow2` VM image): the UnitTests all pass, the tools
+  work, the server listens and runs its scripts. The image's console is the VGA screen, not the serial port, so
+  it was driven through QEMU's monitor (`-monitor unix:...`, `screendump` to see the screen, `sendkey` to type)
+  with output sent to `/dev/ttyu0` and caught by `-serial file:...`; files went in as a raw tar on a second
+  virtio disk (`tar -xf /dev/vtbd1`). It boots in about a minute without KVM. Not tried: a build on FreeBSD
+  itself (gmake, base cc), and arm64.
+
 ## SpiderMonkey consumption
 - Choose the ESR with `SPIDERMONKEY_VERSION` (CMake `-D`) / `--spidermonkey-version` (premake); it drives the
   SDK subdir (`esr<NN>`) and the lib name (`mozjs-<NN>`). `jspidermonkey_home` points at the SDK root

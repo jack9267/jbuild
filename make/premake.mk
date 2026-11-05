@@ -97,20 +97,22 @@ $$($(1)_OBJS): CPPFLAGS += $(3) $(4)
 $$($(1)_BIN): $$($(1)_OBJS) $$(TOOL_DEPS)
 	@mkdir -p $$(dir $$@)
 	$(ECHO) '$(_C_LINK)[LINK]$(_C_OFF) %s\n' '$$(@F)'
-	$(Q)$$(CXX) $$(CXXFLAGS_CONFIG) $(APPLE_FLAGS) $$($(1)_OBJS) $$(TOOL_LDFLAGS) $$(TOOL_LDLIBS) $$(LDFLAGS_EXTRA) -o $$@
+	$(Q)$$(CXX) $$(CXXFLAGS_CONFIG) $(APPLE_FLAGS) $$(TARGET_LDFLAGS) $$($(1)_OBJS) $$(TOOL_LDFLAGS) $$(TOOL_LDLIBS) $$(LDFLAGS_EXTRA) -o $$@
 	$$(call split_debug,$$@)
 endef
 
 # ---- the fragment ----------------------------------------------------------
 # Written whenever it is missing or older than the premake scripts (make rebuilds an included makefile,
-# then starts again with it), fetching the pinned premake first if it has to (premake.sh). Linux and
-# FreeBSD build the same set.
+# then starts again with it), fetching the pinned premake first if it has to (premake.sh). FreeBSD's is
+# premake's "bsd" (os.target(), and a premake5.lua's systems lists).
 ifeq ($(PLATFORM),macos)
   MAKE_FRAGMENT := macosx
 else ifneq (,$(filter ios ios-sim,$(PLATFORM)))
   MAKE_FRAGMENT := ios
 else ifeq ($(PLATFORM),android)
   MAKE_FRAGMENT := android
+else ifeq ($(PLATFORM),freebsd)
+  MAKE_FRAGMENT := bsd
 else
   MAKE_FRAGMENT := linux
 endif
