@@ -274,9 +274,12 @@ function Invoke-Cmake {
 
     # The build dir from the chosen preset (jbuild/cmake/presets.json), with ${sourceDir} -> $Root.
     $binDir = $null
+    $generator = $null
     try {
         $pj = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'cmake\presets.json') -Raw | ConvertFrom-Json
-        $bd = ($pj.configurePresets | Where-Object { $_.name -eq $preset }).binaryDir
+        $pc = $pj.configurePresets | Where-Object { $_.name -eq $preset }
+        $bd = $pc.binaryDir
+        $generator = $pc.generator
         if ($bd) { $binDir = $bd -replace '\$\{sourceDir\}', ($Root -replace '\\', '/') }
     }
     catch { }
@@ -296,9 +299,12 @@ function Invoke-Cmake {
     }
     if (-not $binDir) { Write-Error 'Could not resolve the preset build directory.'; exit 1 }
     $how = switch ($msbuildTarget) { 'Clean' { @('--target', 'clean') } 'Rebuild' { @('--clean-first') } default { @() } }
+    # MSBuild's worker nodes otherwise stay alive after the build, waiting to be reused. Only a Visual Studio
+    # generator builds through MSBuild, so only then is the switch passed on.
+    $tool = if ($generator -like 'Visual Studio*') { @('--', '/nodeReuse:false') } else { @() }
     foreach ($c in $(if ($cfg -in @('both', 'All')) { @('Debug', 'Release') } else { @($cfg) })) {
         Write-Host "$(Tag $msbuildTarget.ToLower() '1;34') $preset $c"
-        & $cmake.Source --build $binDir --config $c @how
+        & $cmake.Source --build $binDir --config $c @how @tool
         if ($LASTEXITCODE -ne 0) { Write-Error "cmake $($msbuildTarget.ToLower()) ($c) failed."; exit $LASTEXITCODE }
     }
 }
@@ -711,7 +717,8 @@ foreach ($cfg in $buildConfigs) {
         Write-Host ''
         Write-Host "$(Tag $msbuildTarget.ToLower() '1;34') $cfg / $plat"
         Write-Host ''
-        & $msbuild $solution.FullName "/t:$msbuildTarget" "/p:Configuration=$cfg" "/p:Platform=$plat" /v:minimal /nologo /m
+        # /nodeReuse:false: otherwise each pass's worker nodes stay alive after it, waiting to be reused.
+        & $msbuild $solution.FullName "/t:$msbuildTarget" "/p:Configuration=$cfg" "/p:Platform=$plat" /v:minimal /nologo /m /nodeReuse:false
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     }
 }
