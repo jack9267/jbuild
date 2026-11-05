@@ -26,7 +26,8 @@
 # No positional binding: a consumer option such as --rpf-key-header=x would otherwise land in -Root.
 [CmdletBinding(PositionalBinding = $false)]
 param(
-    [string] $Root = (Split-Path $PSScriptRoot -Parent),
+    # Empty = this script's parent, set below: Windows PowerShell 5.1 has no $PSScriptRoot in a parameter's default.
+    [string] $Root = '',
 
     # Which build system to drive. Empty auto-detects (premake if the repo root has premake5.lua, cmake if it
     # has CMakeLists.txt) and, when both exist interactively, offers a menu with premake as the default.
@@ -93,6 +94,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+if (-not $Root) { $Root = Split-Path $PSScriptRoot -Parent }
 
 # PowerShell reads an argument that starts with '-' and has a ':' in it as -name:value and splits it there,
 # dropping the colon, before this script sees it: --test-dat16=C:\x arrives as '--test-dat16=C' and '\x'. Put
