@@ -456,7 +456,9 @@ function use_yy_thunks()
 				.. "(https://github.com/Chuyu-Team/YY-Thunks/releases), or unset it to fetch one.")
 		end
 
-		filter { "architecture:" .. arch }
+		-- "not kind:StaticLib" again: a filter replaces the caller's, it doesn't narrow it. Without it every
+		-- static library had the object on lib.exe's command line, which archives it - 5 MB in each .lib.
+		filter { "architecture:" .. arch, "not kind:StaticLib" }
 			linkoptions { yy_thunks_obj(arch) }
 	end
 
