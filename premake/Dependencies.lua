@@ -55,7 +55,7 @@ function dependencies_workspace()
 		"$(WindowsSDK_IncludePath)",
 		"$(dxsdk_dir)\\include",
 		"$(jdependencies_home)\\include",
-		"$(jdependencies_home)\\include\\mongoose6",
+		"$(jdependencies_home)\\include\\mongoose7",
 		"$(jdependencies_home)\\include\\lua5.4"
 	}
 
